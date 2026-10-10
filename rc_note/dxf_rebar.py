@@ -425,6 +425,13 @@ def write(formwork_path, out_path, lay, plan, inp, title_extra="", P=None):
             draw_rep(msp, rep, dx)
         dimension_chains(msp, [r.rng for r in reps if r.rng] + [z.rng for z in zones if z.rng]
                          + plan.dims.get(face, []), dx)
+        for (p1, p2) in plan.laps.get(face, []):          # overlaps: one dimension each
+            vert = abs(p1[0] - p2[0]) < 0.01
+            if abs(p2[0] - p1[0]) + abs(p2[1] - p1[1]) < 0.5:
+                continue
+            d = msp.add_linear_dim(base=(p1[0] + dx, p1[1]), p1=(p1[0] + dx, p1[1]), p2=(p2[0] + dx, p2[1]),
+                                   angle=90 if vert else 0, dimstyle=DIMSTYLE, dxfattribs={"layer": "R-DIM"})
+            d.render()
         if face == "bottom":
             for (x, y, s, h, rot) in plan.texts:
                 text(msp, s, (x + dx, y), h, rot)
@@ -441,7 +448,8 @@ def write(formwork_path, out_path, lay, plan, inp, title_extra="", P=None):
             "BR bottom, DR distribution, TR top, AR assembly bars under the top bars (dots).",
             "Meshes: M<position> <type> - <length along the main bars> / <width> [m]; "
             "the diagonal marks one mesh piece.",
-            "The dimension lines give the width over which the bars / meshes are placed.",
+            "The dimension lines give the width over which the bars / meshes are placed and every "
+            "overlap (lap) of bars or meshes.",
             "Bottom bars run into the supports up to the far face minus the cover; "
             "top bars are bent down to the bottom cover. Laps of bars: 50Ø.",
         ] + plan.notes

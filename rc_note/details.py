@@ -285,12 +285,12 @@ def draw_tie(sh, el, b, x0, y0, w):
     sh.text(b.label(), (x0 + w + 3.6 * sh.h, y0), 0.85 * sh.h, align=ML)
 
 
-def draw_shape(sh, b, pts, label_at=None):
+def draw_shape(sh, b, pts, label_at=None, label=None, segs=None):
     """A bar drawn separately: polyline pts (cm), lengths of the parts written
     along the parts, position number and label."""
     sh.pline(pts, "D-BARS")
     t = 0.75 * sh.h
-    for (a, c), L in zip(zip(pts, pts[1:]), b.segs):
+    for (a, c), L in zip(zip(pts, pts[1:]), segs or b.segs):
         mx, my = (a[0] + c[0]) / 2, (a[1] + c[1]) / 2
         dx, dy = c[0] - a[0], c[1] - a[1]
         ang = math.degrees(math.atan2(dy, dx))
@@ -306,7 +306,7 @@ def draw_shape(sh, b, pts, label_at=None):
     if label_at is None:
         label_at = ((min(xs) + max(xs)) / 2, min(ys) - 1.6 * sh.h)
     sh.bubble(b.pos, (label_at[0] - 4.0 * sh.h, label_at[1]))
-    sh.text(b.label(), (label_at[0] - 2.6 * sh.h, label_at[1]), 0.9 * sh.h, align=ML)
+    sh.text(label or b.label(), (label_at[0] - 2.6 * sh.h, label_at[1]), 0.9 * sh.h, align=ML)
 
 
 def schedule(sh, el, x0, y0):
@@ -337,11 +337,155 @@ class BeamSpec:
     phi_w: int = 8
     below: float = 60.0      # columns drawn below the soffit
     tie: DBar = None
+    shift: dict = None       # data of the tension-shift diagram
 
 
 def bar_y(level, h, phi, phi_w, k=0):
     off = C + phi_w / 10 + phi / 20 + 1.0 * k
     return off if level == "bot" else h - off
+
+
+def lap_dims(sh, sp, h, up):
+    """Dimension lines at every overlap of two bars at the same level (laps
+    over the supports, assembly bars lapped with the support bars)."""
+    for level, y_d, step in (("top", h + 0.35 * up, 1.7 * sh.h), ("bot", -0.35 * sp.below, -1.7 * sh.h)):
+        runs = [r for r in sp.runs if r["level"] == level]
+        laps = []
+        for i in range(len(runs)):
+            for j in range(i + 1, len(runs)):
+                a, b = runs[i], runs[j]
+                a0, a1 = sorted((a["x0"], a["x1"]))
+                b0, b1 = sorted((b["x0"], b["x1"]))
+                o0, o1 = max(a0, b0), min(a1, b1)
+                if o1 - o0 < 0.5:
+                    continue
+                if (a0 <= b0 + 0.5 and a1 >= b1 - 0.5) or (b0 <= a0 + 0.5 and b1 >= a1 - 0.5):
+                    continue                              # one bar inside the other: no lap
+                laps.append((o0, o1, a.get("_y", 0)))
+        used = []
+        for o0, o1, yb in sorted(set((round(a, 1), round(b, 1), yb) for a, b, yb in laps)):
+            k = sum(1 for u0, u1 in used if not (o1 < u0 - 8 or o0 > u1 + 8))
+            used.append((o0, o1))
+            sh.dim((o0, yb), (o1, yb), (o0, y_d + k * step))
+
+
+def bar_list(sh, runs, y, x_shift=0.0):
+    """The bars drawn separately (bending schedule), every run - also the
+    mirrored ones - with its own label; runs of one position share a row."""
+    rows = []
+    for r in runs:
+        for row in rows:
+            if row[0]["bar"].pos == r["bar"].pos and all(
+                    min(r["x0"], r["x1"]) > max(q["x0"], q["x1"]) + 20 or max(r["x0"], r["x1"]) < min(q["x0"], q["x1"]) - 20
+                    for q in row):
+                row.append(r)
+                break
+        else:
+            rows.append([r])
+    for row in rows:
+        up_ = max(max(r.get("legs", (0, 0))) if r["level"] == "bot" else 0 for r in row)
+        dn_ = max(max(r.get("legs", (0, 0))) if r["level"] != "bot" else 0 for r in row)
+        y -= up_ + 2.0 * sh.h
+        for r in row:
+            b = r["bar"]
+            l0, l1 = r.get("legs", (0, 0))
+            sgn = 1 if r["level"] == "bot" else -1
+            x0, x1 = r["x0"] + x_shift, r["x1"] + x_shift
+            pts = []
+            if l0:
+                pts.append((x0, y + sgn * l0))
+            pts += [(x0, y), (x1, y)]
+            if l1:
+                pts.append((x1, y + sgn * l1))
+            main = max(b.segs)
+            segs = ([l0] if l0 else []) + [main] + ([l1] if l1 else [])
+            draw_shape(sh, b, pts, label_at=((x0 + x1) / 2, y - 1.6 * sh.h - dn_),
+                       label=f"{r['n']}Ø{b.phi} L={fmt(b.L)}", segs=segs)
+        y -= dn_ + 3.4 * sh.h
+    return y
+
+
+def draw_shift(sh, sp, y0):
+    """Diagram of the tensile force M_Ed/z, shifted by a_l = 0.45·d·cotθ
+    (EC2 9.2.1.3), compared with the force the bars can take (A_s·f_yd per
+    bar). Positive moments (bottom bars) are drawn downwards."""
+    import numpy as np
+    S = sp.shift
+    x_org = S["x0"]
+    X = np.array(S["X"]) * 100.0 + x_org
+    fyd = S["fyd"]
+    al = 0.45 * S["d"] / 10 * S["cot"]
+    xx = np.linspace(X[0], X[-1], 600)
+    Fp = np.interp(xx, X, np.maximum(np.array(S["Mpos"]), 0)) / S["zp"]
+    Fn = np.interp(xx, X, np.maximum(-np.array(S["Mneg"]), 0)) / S["zn"] if S.get("Mneg") else np.zeros_like(xx)
+
+    def shift(F):
+        out = np.empty_like(F)
+        for i, x in enumerate(xx):
+            m = abs(xx - x) <= al
+            out[i] = F[m].max()
+        return out
+    Fps, Fns = shift(Fp), shift(Fn)
+    cap_b = [(b, n) for b, n in S["bot"]]
+    cap_t = list(S.get("top", []))
+    Fbar = lambda b: BAR_AREA[b.phi] * fyd / 1000.0
+    Rb = sum(n * Fbar(b) for b, n in cap_b)
+    Rt = sum(it[1] * Fbar(it[0]) for it in cap_t)
+    Fmax = max(Fps.max(), Fns.max(), Rb, Rt, 1.0)
+    target = 4.0 * sh.h * 3.5
+    k = None
+    for base in (1, 2, 2.5, 5):
+        for e in range(0, 5):
+            cand = base * 10 ** e
+            if Fmax / cand <= target:
+                k = cand
+                break
+        if k:
+            break
+    k = k or Fmax / target                    # kN per drawing unit (cm)
+    ytop = y0 - (max(Fns.max(), Rt) / k if (S.get("Mneg") or cap_t) else 0) - 2 * sh.h
+    ya = ytop                                 # axis of the diagram
+    sh.text("Diagram of the tensile force (shifted by a_l)", (x_org, ya + 2.2 * sh.h +
+            (max(Fns.max(), Rt) / k if S.get("Mneg") else 0)), sh.h, align=BL)
+    sh.line((X[0], ya), (X[-1], ya), "D-TEXT")
+    for F, Fs, sgn in ((Fp, Fps, -1), (Fn, Fns, 1)):
+        if F.max() <= 0:
+            continue
+        sh.pline([(x, ya + sgn * f / k) for x, f in zip(xx, F)], "D-HIDDEN")
+        pts = [(xx[0], ya)] + [(x, ya + sgn * f / k) for x, f in zip(xx, Fs)] + [(xx[-1], ya)]
+        sh.pline(pts, "D-LINKS")
+        if sh.msp is not None:
+            h_ = sh.msp.add_hatch(color=254, dxfattribs={"layer": "D-TEXT"})
+            h_.set_solid_fill(color=254)
+            h_.paths.add_polyline_path([sh.P(p) for p in pts], is_closed=True)
+    # force the bars can take: one line per bar
+    for grp, sgn, x_rng in ((cap_b, -1, (X[0], X[-1])), (cap_t, 1, None)):
+        acc = 0.0
+        for item in grp:
+            b, n = item[0], item[1]
+            for i in range(n):
+                acc += Fbar(b)
+                xa, xb = item[2] if len(item) > 2 and item[2] else (x_rng or (X[0], X[-1]))
+                y = ya + sgn * acc / k
+                sh.line((xa, y), (xb, y), "D-BARS")
+                sh.text(f"F Ø{b.phi}", (X[0] - 0.6 * sh.h, y), 0.75 * sh.h, align=MR)
+    # texts
+    b1 = cap_b[0][0]
+    Mmax = max(np.array(S["Mpos"]))
+    xt = X[-1] + 2 * sh.h
+    lines = [f"F Ø{b1.phi} = A_s·f_yd = {fmt(BAR_AREA[b1.phi])}·{fmt(fyd)} = {fmt(Fbar(b1))} kN",
+             f"M_Ed/z = M_Ed/(ζ·d) = {fmt(Mmax)}/({fmt(S['zp'] / S['d'] * 1000)}·{fmt(S['d'] / 1000)}) = "
+             f"{fmt(Mmax / S['zp'])} kN",
+             f"a_l = 0.45·d·cotθ = 0.45·{fmt(S['d'] / 10)}·{fmt(S['cot'])} = {fmt(al)} cm",
+             f"ΔF_td = 0.5·V_Ed·cotθ = 0.5·{fmt(S['V'])}·{fmt(S['cot'])} = {fmt(0.5 * S['V'] * S['cot'])} kN",
+             f"Scale of the forces: 1 cm = {fmt(k)} kN"]
+    for i, t in enumerate(lines):
+        sh.text(t, (xt, ya - (i + 0.5) * 1.8 * sh.h), 0.85 * sh.h, align=ML)
+    # a_l marked at the maximum
+    i = int(np.argmax(Fp))
+    sh.dim((xx[i], ya - Fp[i] / k), (xx[i] + al, ya - Fp[i] / k), (xx[i], ya - Fp[i] / k - 1.8 * sh.h),
+           text=f"a_l = {fmt(al)}")
+    return min(ya - max(Fps.max(), Rb) / k - 4 * sh.h, ya - 10 * sh.h)
 
 
 def draw_beam(sh, sp, x_off=0.0, draw_sections=True, draw_list=True, sched=True):
@@ -398,8 +542,9 @@ def draw_beam(sh, sp, x_off=0.0, draw_sections=True, draw_list=True, sched=True)
         yb = y + (-2.2 if r["level"] == "bot" else 2.2) * sh.h
         if r["level"] == "side":
             yb = y + 1.8 * sh.h
-        if not r.get("silent"):
-            sh.bubble(b.pos, (xm, yb), (xm, y))
+        sh.bubble(b.pos, (xm, yb), (xm, y))
+        r["_y"] = y
+    lap_dims(sh, sp, h, up)
     # links
     yl0, yl1 = C, h - C
     total = 0
@@ -450,26 +595,9 @@ def draw_beam(sh, sp, x_off=0.0, draw_sections=True, draw_list=True, sched=True)
         xs0, y_sec = draw_beam_sections(sh, sp, xs0, h)
     # ------------------------------------------------------------ bars drawn separately
     if draw_list:
-        y = y_low
-        done = set()
-        for r in sp.runs:
-            b = r["bar"]
-            if b.pos in done:
-                continue
-            done.add(b.pos)
-            l0, l1 = r.get("legs", (0, 0))
-            sgn = 1 if r["level"] == "bot" else -1
-            top = max(l0 if sgn > 0 else 0, l1 if sgn > 0 else 0)
-            y -= top + 2.0 * sh.h
-            pts = []
-            if l0:
-                pts.append((r["x0"], y + sgn * l0))
-            pts += [(r["x0"], y), (r["x1"], y)]
-            if l1:
-                pts.append((r["x1"], y + sgn * l1))
-            draw_shape(sh, b, pts, label_at=((r["x0"] + r["x1"]) / 2, y - 1.6 * sh.h - (max(l0, l1) if sgn < 0 else 0)))
-            y -= (max(l0, l1) if sgn < 0 else 0) + 3.4 * sh.h
-        y_low = y
+        y_low = bar_list(sh, sp.runs, y_low)
+    if getattr(sp, "shift", None):
+        y_low = draw_shift(sh, sp, y_low - 4 * sh.h)
     if sched:
         y_low = min(schedule(sh, el, x_r + 9 * sh.h, y_sec - 3 * sh.h) - 2 * sh.h, y_low)
     return y_low
@@ -561,6 +689,10 @@ def beam_B21(P):
                         dict(bar=b2, level="top", x0=C, x1=L - C, legs=(l2, l2), n=nt_, tag=0.7)],
                   zones=zones, link=lk, phi_w=phiw,
                   sections=[("1-1", L / 2, [(b1, r["n"])], [(b2, nt_)], None)])
+    dg = D.get("diag")
+    if dg:
+        sp.shift = dict(x0=t / 2, X=dg["X"], Mpos=dg["M"], zp=r["zeta"] * D["d"] / 1000, d=D["d"],
+                        cot=dg["cot"], V=dg["V"], fyd=inp.fyk / 1.15, bot=[(b1, r["n"])])
     return el, sp
 
 
@@ -638,6 +770,12 @@ def beam_B5(P):
                   runs=runs, zones=zones, link=lk, phi_w=phiw,
                   sections=[("1-1", t1 + lcl / 2, [(b1, r1["n"])], [(b3, 2)], None),
                             ("2-2", xB - t2 / 2 - 25, [(b1, r1["n"])], [(b2, rB["n"]), (b3, 2)], None)])
+    dg = D.get("diag")
+    if dg:
+        sp.shift = dict(x0=t1 / 2, X=dg["X"], Mpos=dg["Mmax"], Mneg=dg["Mmin"], zp=r1["zeta"] * D["d"] / 1000,
+                        zn=rB["zeta"] * D["d"] / 1000, d=D["d"], cot=dg["cot"], V=dg["V"], fyd=inp.fyk / 1.15,
+                        bot=[(b1, r1["n"])],
+                        top=[(b3, 2, (C, L - C)), (b2, rB["n"], (xB - t2 / 2 - ext, xB + t2 / 2 + ext))])
     return el, sp
 
 
@@ -751,6 +889,7 @@ def draw_column_C10(sh, el, d):
     sh.vchain([base, lv1 - hB, lv1, lv2 - hB, lv2], x1 + 80, x1 + 80 + 6 * sh.h)
     sh.dim((x0, top), (x1, top), (x0, top + 2 * sh.h))
     sh.dim((x1, lv1), (x1, lv1 + d["lap1"]), (x1 + 2.6 * sh.h, lv1), vertical=True, text=f"lap {fmt(d['lap1'])}")
+    sh.dim((x1, lv2), (x1, lv2 + d["lap2"]), (x1 + 2.6 * sh.h, lv2), vertical=True, text=f"lap {fmt(d['lap2'])}")
     # section marks
     for lab, y in (("0", base + 0.5 * (lv1 - hB - base)), ("1", lv1 + 0.5 * (lv2 - hB - lv1))):
         sh.line((x0 - 14, y), (x0 - 6, y))
@@ -876,6 +1015,7 @@ def draw_frame(sh, el, sp, fd):
                 y = ya + 5 + i * st
                 sh.line((x - hcol / 2 + C, y), (x + hcol / 2 - C, y), "D-LINKS")
         c["link"].n += tot
+        sh.dim((x + hcol / 2, sp.h), (x + hcol / 2, ytop), (x + hcol / 2 + 1.8 * sh.h, sp.h), vertical=True)
         if tag != "C12":
             sh.bubble(c["bar"].pos, (x + hcol / 2 + 3 * sh.h, y_ft + 0.4 * below), (x + hcol / 2 - off, y_ft + 0.4 * below))
             sh.bubble(c["link"].pos, (x - hcol / 2 - 3 * sh.h, y_ft + 0.55 * below), (x - hcol / 2 + C, y_ft + 0.55 * below))
@@ -887,6 +1027,18 @@ def draw_frame(sh, el, sp, fd):
     sh.text("±0.00 (top of footing)", (fd["xs"]["C12"] + Lf / 2 + 10, y_ft + 0.8 * sh.h), 0.8 * sh.h, align=BL)
     xr = fd["xs"]["C12"] + Lf / 2 + 10
     sh.vchain([y_ft - Hf, y_ft, 0, sp.h], xr, xr + 8 * sh.h)
+    # vertical bars of the columns drawn separately, with the lengths of their parts
+    xv = xr + 20 * sh.h
+    for tag, who in (("C7", "C7"), ("C1", "C1, C12")):
+        c = fd["cols"][tag]
+        b = c["bar"]
+        yb = y_ft - Hf + C_FOOT + 3
+        ytop = sp.h + c["lap"]
+        draw_shape(sh, b, [(xv + b.segs[0], yb), (xv, yb), (xv, ytop)],
+                   label_at=(xv + 5.5 * sh.h, yb - 2.8 * sh.h), label=f"{c['n']}Ø{b.phi} L={fmt(b.L)} ({who})")
+        sh.vchain([yb, y_ft, 0, sp.h, ytop], xv, xv - 3.0 * sh.h)
+        sh.text(f"lap {fmt(c['lap'])}", (xv + 1.2 * sh.h, sp.h + c["lap"] / 2), 0.75 * sh.h, rot=90)
+        xv += 30 * sh.h
     # column sections
     xs = sh.box[2] + 6 * sh.h
     for tag in ("C7", "C1"):
@@ -894,37 +1046,16 @@ def draw_frame(sh, el, sp, fd):
         column_section(sh, xs, -c["b"] - 20, c["h"], c["b"], c["n"], c["phi"], c["phiw"], c["bar"], c["link"],
                        None, f"Column {tag}" + (" (C12)" if tag == "C1" else ""))
         xs += c["h"] + 16 * sh.h
-    # bars drawn separately
-    y = min(y_low, y_ft - Hf - 14 * sh.h)
-    done = set()
-    for r in sp.runs:
-        b = r["bar"]
-        if b.pos in done:
-            continue
-        done.add(b.pos)
-        l0, l1 = r.get("legs", (0, 0))
-        sgn = 1 if r["level"] == "bot" else -1
-        y -= (max(l0, l1) if sgn > 0 else 0) + 2.0 * sh.h
-        pts = []
-        if l0:
-            pts.append((r["x0"], y + sgn * l0))
-        pts += [(r["x0"], y), (r["x1"], y)]
-        if l1:
-            pts.append((r["x1"], y + sgn * l1))
-        draw_shape(sh, b, pts, label_at=((r["x0"] + r["x1"]) / 2,
-                                         y - 1.6 * sh.h - (max(l0, l1) if sgn < 0 else 0)))
-        y -= (max(l0, l1) if sgn < 0 else 0) + 3.4 * sh.h
-    # column bars and links
+    # bars of the beam drawn separately (also the mirrored ones)
+    y = bar_list(sh, sp.runs, min(y_low, y_ft - Hf - 14 * sh.h))
+    # links
     x = 0.0
     yb = y - 2 * sh.h
-    for tag in ("C7", "C1"):
-        c = fd["cols"][tag]
-        b = c["bar"]
-        draw_shape(sh, b, [(x, yb - b.segs[0]), (x, yb), (x + b.segs[1], yb)],
-                   label_at=(x + b.segs[1] / 2, yb - 4 * sh.h))
-        draw_link(sh, el, c["link"], x + b.segs[1] + 10 * sh.h, yb - c["link"].segs[1], c["link"].segs[0],
-                  c["link"].segs[1])
-        yb -= max(c["link"].segs[1], 30) + 8 * sh.h
+    hmax = 0.0
+    for c in (fd["cols"]["C7"], fd["cols"]["C1"]):
+        draw_link(sh, el, c["link"], x, yb - c["link"].segs[1], c["link"].segs[0], c["link"].segs[1])
+        x += c["link"].segs[0] + 40 * sh.h
+        hmax = max(hmax, c["link"].segs[1])
     link = sp.link
     draw_link(sh, el, link, x, yb - link.segs[1], link.segs[0], link.segs[1])
     schedule(sh, el, sh.box[2] - 26 * sh.h, -fd["below"] - Hf - 4 * sh.h)

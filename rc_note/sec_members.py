@@ -234,7 +234,8 @@ def _section_VI(nt, P_, hcm):
     okf = beam_deflection(nt, mat, bw.v * 10, hcm * 10, beff.v * 1000, hf * 10, d.v, r["As_prov"],
                           Mqp, L.v * 1000)
     P_.res["VI"] = dict(h=hcm, Rg=Rg.v, Rq=Rq.v, bars=r["bars"], links=sh["links"],
-                        design=dict(r=r, sh=sh, lcl=lcl.v, d=d.v),
+                        design=dict(r=r, sh=sh, lcl=lcl.v, d=d.v, leff=L.v,
+                                    diag=dict(X=list(map(float, X)), M=list(map(float, Mx)), V=V.v, cot=2.5)),
                         summary=[("Beam B21", f"{fmt(inp.B21_b)}/{fmt(hcm)} cm, {r['bars']}, links {sh['links']}")])
     return r["ok"] and sh["ok"] and okf
 
@@ -516,7 +517,9 @@ def _section_VIII(nt, P_, hcm):
     okd = deflection_ld(nt, L * 1000, d, r1["As"] / (inp.B5_b * 10 * d.v), r1["As_prov"] / (inp.B5_b * 10 * d.v),
                         r1["As"], r1["As_prov"], mat, Kf, gk.v, qk.v, gd.v, qd.v)
     P_.res["VIII"] = dict(h=hcm, RBg=RBg.v, RBq=RBq.v, RB=RB.v, gk=gk.v, qk=qk.v, L=L,
-                          design=dict(r1=r1, rB=rB, sh=sh, nhang=nlinks, lcl=lcl.v),
+                          design=dict(r1=r1, rB=rB, sh=sh, nhang=nlinks, lcl=lcl.v, d=d.v, leff=L,
+                                      diag=dict(X=list(map(float, X)), Mmax=list(map(float, env["Mmax"])),
+                                                Mmin=list(map(float, env["Mmin"])), V=V.v, cot=2.5)),
                           summary=[("Beam B5-B9", f"{fmt(inp.B5_b)}/{fmt(hcm)} cm, span {r1['bars']}, "
                                     f"support {rB['bars']}, links {sh['links']}")])
     return r1["ok"] and rB["ok"] and sh["ok"] and okd

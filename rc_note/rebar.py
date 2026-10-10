@@ -216,6 +216,7 @@ class SlabPlan:
     mesh_bottom: list = field(default_factory=list)
     mesh_top: list = field(default_factory=list)
     dims: dict = field(default_factory=dict)
+    laps: dict = field(default_factory=dict)       # overlaps of bars / meshes: dimensioned one by one
     details: list = field(default_factory=list)   # element detail drawings (details.Element)
 
 
@@ -297,6 +298,7 @@ class Builder:
         self.bottom, self.top = [], []
         self.mesh_bottom, self.mesh_top = [], []
         self.dims = {"bottom": [], "top": []}     # extra dimensions (zones without a drawn bar)
+        self.laps = {"bottom": [], "top": []}     # overlaps (laps) of bars and meshes
         self.notes, self.texts = [], []
 
     # ---------------------------------------------------------- primitives
@@ -411,7 +413,7 @@ class Builder:
         self.stairs(res.get("V"))
         self.sch.number()
         return SlabPlan(self.bottom, self.top, self.sch, self.notes, slab_thickness(self.P), self.texts,
-                        self.mesh_bottom, self.mesh_top, self.dims)
+                        self.mesh_bottom, self.mesh_top, self.dims, laps=self.laps)
 
     # ------------------------------------------------------------- meshes
     def mesh_zone(self, name, rect, main, face, where, slab="", rng=None):
@@ -426,7 +428,7 @@ class Builder:
         if L > MESH_SHEET[0]:
             raise ValueError(f"mesh zone longer than a sheet: {L:.0f} cm")
         k = 1 if W <= Bs else int(math.ceil((W - Bs) / (Bs - MESH_LAP) - 1e-9)) + 1
-        B = math.ceil((W + (k - 1) * MESH_LAP) / k - 1e-6)
+        B = (W + (k - 1) * MESH_LAP) / k          # equal pieces, laps of exactly MESH_LAP
         mt = self.sch.mesh(name, L, B, face, where)
         pieces = []
         a = y0 if main == "x" else x0
@@ -436,6 +438,13 @@ class Builder:
             b0 = b1 - B
             pieces.append((mt, (x0, b0, x1, b1) if main == "x" else (b0, y0, b1, y1)))
         mt.n_total += k
+        for (_, ra), (_, rb) in zip(pieces, pieces[1:]):        # side laps of the pieces
+            if main == "y":
+                yl = y0 + 0.12 * (y1 - y0)
+                self.laps[face].append(((rb[0], yl), (ra[2], yl)))
+            else:
+                xl = x0 + 0.12 * (x1 - x0)
+                self.laps[face].append(((xl, rb[1]), (xl, ra[3])))
         z = MeshZone(pieces, main, rng, face, slab)
         (self.mesh_bottom if face == "bottom" else self.mesh_top).append(z)
         return z
@@ -468,6 +477,10 @@ class Builder:
                 self.mesh_zone(Mh[("span", sym)], (x0, y0 - (tw(j) - COVER), x1, y1 + (tw(j + 1) - COVER)),
                                "y", "bottom", f"{wh}, bottom, span {sym}", str(nos[j]),
                                rng=((x0, yr), (x1, yr)))
+            xl = x0 + 0.93 * (x1 - x0)
+            for j in range(1, n):                       # bottom meshes of two panels overlap in the beam
+                self.laps["bottom"].append(((xl, panels[j][0] - (tb - COVER)),
+                                            (xl, panels[j - 1][1] + (tb - COVER))))
             # strips over the secondary beams
             for j in range(1, n):
                 sym = min(j, n - j)
@@ -520,6 +533,9 @@ class Builder:
                              side=-1, lab_t=0.5)
             self.bottom_bars("DR", (x0, y0, x1, y1), "y", phid, sd, (e, e), 0.14, 0.12,
                              f"{rng_txt}, distribution", str(nos[j]), side=-1, lab_t=0.70)
+        for j in range(n - 1):                          # bottom bars of two panels overlap in the beam
+            yl = y0 + (0.26 if j % 2 else 0.33) * H
+            self.laps["bottom"].append(((panels[j + 1][0] - e, yl), (panels[j][1] + e, yl)))
         for j in range(1, n):
             r = D["rB"] if j in (1, n - 1) else D["r2"]
             lcl = max(panels[j - 1][1] - panels[j - 1][0], panels[j][1] - panels[j][0])
@@ -582,6 +598,9 @@ class Builder:
                          rng=((xa + 0.88 * (xb - xa), y0), (xa + 0.88 * (xb - xa), y1)),
                          lab_t=0.30, slab=str(no)))
             tops.append((xa, xb, s1 - s0))
+        for k in range(2):                              # laps of the distribution bars
+            yk = y0 + (0.30 + 0.06 * (k % 2)) * H
+            self.laps["bottom"].append(((pieces[k + 1][0], yk), (pieces[k][1], yk)))
         # top bars at the edge supports B and D
         for face, inward in ((y0, 1), (y1, -1)):
             for k, (xa, xb, Lr) in enumerate(tops):
@@ -624,6 +643,10 @@ class Builder:
             rx, ry = (D["x2"], D["y2"]) if k == 1 else (D["x1"], D["y1"])
             self.two_way_bottom((x0, y0, x1, y1), tl, tr, rx, ry, f"slab {nos[k]}", str(nos[k]),
                                 fx=0.34 if k % 2 else 0.27)
+        for k in range(2):                              # bottom bars x overlap over axes 5 and 6
+            x0, y0, x1, y1, tl, tr = pans[k]
+            yl = y0 + (0.34 if k % 2 else 0.27) * (y1 - y0)
+            self.laps["bottom"].append(((pans[k + 1][0] - (pans[k + 1][4] - COVER), yl), (x1 + (tr - COVER), yl)))
         # top bars over the beams on axes 5 and 6
         rs = D["sup"]
         X = self.lay.X

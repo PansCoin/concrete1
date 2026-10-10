@@ -82,6 +82,15 @@ lines, cross-sections, the bars drawn separately with the lengths of their parts
 circles and a bar schedule with the mass. Detailing: cover 25 mm (50 mm in the footing), anchorage legs
 12Ø, top bars over supports 0.3·l, links 0.6·s in the critical zones of the columns, laps 50Ø.
 
+Also in the element drawings: every bar is drawn separately, the mirrored ones too (each with its
+own label); all overlaps of bars (laps over the supports, assembly bars lapped with the support bars,
+laps of the column bars above the slabs) are dimensioned; the frame on axis 2 shows the vertical bars of
+the columns separately with the lengths of their parts (in the footing, in the storey, in the beam, lap);
+beams B21 and B5 have the diagram of the tensile force M_Ed/z shifted by a_l = 0.45·d·cotθ, compared
+with the force the bars can take (A_s·f_yd per bar), with ΔF_td = 0.5·V_Ed·cotθ.
+In the slab plans every overlap is dimensioned too: side laps of the meshes, meshes and bottom bars
+overlapping in the beams, laps of the distribution bars.
+
 **Minimum slab thickness 12 cm** – the automatic search of every slab starts at 12 cm, smaller values
 given in the input file are raised to 12 cm (with a message); the balconies are 12 cm at the free edge.
 
