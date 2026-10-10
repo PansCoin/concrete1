@@ -8,7 +8,7 @@ import numpy as np
 
 from .engine import S, N, P, sqrt, emin, emax, eabs, fmt
 from .design import (NullNote, materials, bending, shear_no_links, deflection_ld,
-                     slab_bars, BAR_AREA)
+                     slab_bars, BAR_AREA, MESHES, MESH_SHEET, mesh_area, mesh_for)
 from .project import slab_actions
 from .statics import ContinuousBeam, plate_coeffs
 
@@ -214,14 +214,65 @@ def section_II(nt, P_, hf):
              [(f"{'Span' if k == 'span' else 'Support'} {i}", fmt(abs(M.v)), fmt(res[(k, i)]["As"]),
                res[(k, i)]["bars"], fmt(res[(k, i)]["As_prov"])) for k, i, M in moments],
              caption="Reinforcement of the continuous slab")
+    meshes, okm = hall_meshes(nt, res, moments, r1, spans, d, mat, L, hf)
     P_.res["II"] = dict(hf=hf, gk=L["gk"].v, spans=spans, env=env,
                         design=dict(span={i: res[("span", i)] for i in range(1, nh + 1)},
                                     sup={sup_names[j]: res[("sup", sup_names[j])] for j in range(1, nh + 1)},
-                                    dist=dist, n=n),
+                                    dist=dist, n=n, mesh=meshes),
                         summary=[(f"Slabs {G.no_hall} (hall, continuous)",
-                                  f"h_f = {fmt(hf)} cm, span 1: {res[('span', 1)]['bars']}, support B: "
-                                  f"{res[('sup', 'B')]['bars']}")])
-    return ok and sh["ok"] and okd
+                                  f"h_f = {fmt(hf)} cm, welded meshes: span 1 {meshes[('span', 1)]}, "
+                                  f"support B {meshes[('sup', 'B')]}")])
+    return ok and sh["ok"] and okd and okm
+
+
+def hall_meshes(nt, res, moments, r1, spans, d, mat, L, hf):
+    """The slabs of the hall are reinforced with welded wire meshes (R-type):
+    the lightest mesh with A_s ≥ A_s,req in every section; the span mesh is
+    increased until the deflection check is satisfied."""
+    dr = dry(nt)
+    nt.h2("8. Reinforcement with welded wire meshes")
+    if not dr:
+        nt.p("The slabs are reinforced with welded wire meshes of type R (main bars in the long direction "
+             f"of the sheet, standard sheet {fmt(MESH_SHEET[0] / 100)} × {fmt(MESH_SHEET[1] / 100)} m), main "
+             "bars parallel to the span. Bottom meshes are placed in every panel and run into the beams up to "
+             "the far face minus the cover; top meshes are strips over the beams (0.3·l beyond the face of "
+             "the beam) and at the edges. Laps of the transverse bars ≥ 150 mm.")
+        nt.table(["Mesh", "Main bars", "Transverse bars", "A_s [mm²/m]", "A_s,tr [mm²/m]"],
+                 [(n, f"Φ{fmt(v[0])}/{fmt(v[1] / 10)} cm", f"Φ{fmt(v[2])}/{fmt(v[3] / 10)} cm",
+                   fmt(mesh_area(n)[0]), fmt(mesh_area(n)[1])) for n, v in MESHES.items()],
+                 caption="Welded wire meshes (R-type)")
+    out, rows, ok = {}, [], True
+    for kind, idx, M in moments:
+        r = res[(kind, idx)]
+        m = mesh_for(r["As"])
+        if kind == "span" and idx == 1:          # deflection with the area of the mesh
+            while not deflection_ld(NullNote(), spans[0] * 1000, d, r1["rho"], mesh_area(m)[0] / (1000 * d.v),
+                                    r1["As"], mesh_area(m)[0], mat, 1.3, L["gk"].v, L["qk"].v, L["gd"].v,
+                                    L["qd"].v):
+                nxt = mesh_for(mesh_area(m)[0] + 1, start=m)
+                if nxt == m:
+                    ok = False
+                    break
+                m = nxt
+        out[(kind, idx)] = m
+        rows.append((f"{'Span' if kind == 'span' else 'Support'} {idx} ({'bottom' if kind == 'span' else 'top'})",
+                     fmt(r["As"]), m, fmt(mesh_area(m)[0])))
+    As3 = max(0.25 * mesh_area(out[("span", 1)])[0], r1["As_min"], 5 * BAR_AREA[8])
+    out["edge"] = mesh_for(As3)
+    rows.append(("End supports A, E (top): max(0.25·A_s; A_s,min; 5Φ8/m)", fmt(As3), out["edge"],
+                 fmt(mesh_area(out["edge"])[0])))
+    out["constr"] = mesh_for(5 * BAR_AREA[8])
+    rows.append(("Edges on axes 1, 2, 3 (top, constructive 5Φ8/m)", fmt(5 * BAR_AREA[8]), out["constr"],
+                 fmt(mesh_area(out["constr"])[0])))
+    nt.table(["Section", "A_s,req [mm²/m]", "Adopted mesh", "A_s,prov [mm²/m]"], rows,
+             caption="Welded wire meshes of the continuous slab")
+    m1 = out[("span", 1)]
+    nt.p(f"Control of deflection with the mesh of the end span ({m1}):", italic=True)
+    okd = deflection_ld(nt, spans[0] * 1000, d, r1["rho"], mesh_area(m1)[0] / (1000 * d.v), r1["As"],
+                        mesh_area(m1)[0], mat, 1.3, L["gk"].v, L["qk"].v, L["gd"].v, L["qd"].v)
+    s_max = min(2 * hf * 10, 250)
+    nt.p(f"Spacing of the main bars of the meshes 150 mm ≤ min(2·h_f; 250 mm) = {fmt(s_max)} mm.")
+    return out, ok and okd and s_max >= 150
 
 
 # ============================================================================

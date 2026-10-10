@@ -42,15 +42,21 @@ renumbering of the slabs and beams), the balconies get the depth d and the canop
 1.25·d. The slab thicknesses `h_f = .. cm` and a table of the element sizes
 (slabs, beams, columns, footing) come from the calculations.
 
-**Reinforcement plans** – `rc_note/rebar.py` (bar positions) and `rc_note/dxf_rebar.py`
-(drawing). The formwork is the grey background; the bars are drawn the usual way: one
-representative bar per group with its shape and lengths, the label
-`N<pos> <mark> <n>Ø<d>x<L>/<s>` (as in the example: `BR 31Ø8x320/16.67`) and a range line
-with arrows. Diameters and spacings are the ones adopted in the note:
+**Reinforcement plans** – `rc_note/rebar.py` (bar and mesh positions) and `rc_note/dxf_rebar.py`
+(drawing). The background is only the outline of the structure (beams, walls, columns, axes,
+names and slab numbers – no section marks, dimensions, levels or stairs), in grey.
+
+* Hall slabs 1–6: **welded wire meshes** R131 / R188 / R221 / R257 / R335 / R424 / R524
+  (R-type, main bars along the span, sheet 5.00 × 2.15 m). The mesh of every section is chosen in
+  section II, part 8 of the note (A_s ≥ A_s,req, deflection checked with the area of the mesh).
+  Bottom meshes per panel, top strips over the secondary beams (0.3·l), at the edges A/E and along
+  axes 1, 2, 3. Every mesh piece is drawn as a rectangle with a diagonal and the label
+  `M<pos> R188 - 2.72/2.11 m` (length along the main bars / width).
+* Other slabs: bars – one representative bar per group with its shape and lengths and the label
+  `N<pos> <mark> <n>Ø<d>x<L>/<s>` (as in the example: `BR 31Ø8x320/16.67`):
 
 | Slab | Bottom | Top |
 |---|---|---|
-| hall 1–6 (II) | BR per span, DR distribution | TR over every secondary beam (support moments), TR at axes A/E, constructive TR at axes 1, 2, 3 |
 | meeting room (III) | BR end / interior spans, DR | TR over the beams (support B / interior), TR at 5' and 7, constructive at D/E |
 | corridor (I) | BR, DR in 3 pieces with laps (> 12 m) | TR at B/D, constructive at 4/7 |
 | offices 19–21 (IV) | BR x and y | TR over axes 5, 6, TR at the edges |
@@ -60,8 +66,13 @@ with arrows. Diameters and spacings are the ones adopted in the note:
 AR = assembly bars under the top bars (dots on the TR bars). Detailing rules (EC2 9.3):
 bottom bars into the supports up to the far face minus the cover, top bars over supports
 0.3·l (two-way 0.25·l) beyond the face, end supports A_s3 ≥ max(0.25·A_s; A_s,min; 5Φ8/m)
-over 0.2·l, distribution ≥ 0.2·A_s and 3Φ8/m. Next to each plan: bar schedule and mass of
-steel per diameter; the same schedule is in section XII of the note.
+over 0.2·l, distribution ≥ 0.2·A_s and 3Φ8/m.
+
+The width over which each group of bars or zone of meshes is placed is given with real
+**dimension lines** (DIMENSION entities, style `RC_DIM`). Collinear dimensions are chained, so
+they touch each other (the width of a beam between two zones is dimensioned too).
+Next to each plan: bar schedule, mesh schedule and mass of steel; the same schedules are in
+section XII of the note.
 
 Limits of the template:
 * the hall must have 3 panels between A and C (true when 2·(b + c/2)/a is between 2

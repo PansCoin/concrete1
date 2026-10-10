@@ -97,9 +97,10 @@ def note_section(nt, P, out):
     for f in out["files"]:
         if f.endswith(".dxf"):
             nt.bullet(os.path.basename(f))
-    nt.p("The bar diameters and spacings are the ones adopted in sections I-IV and VII. Distribution bars, "
-         "top bars at the end supports and along the edges parallel to the span and the assembly bars "
-         "follow the detailing rules given there (EC2 9.3).")
+    nt.p("The slabs of the hall are reinforced with the welded wire meshes adopted in section II (part 8); "
+         "the bar diameters and spacings of the other slabs are the ones adopted in sections I, III, IV and VII. "
+         "Distribution bars, top bars at the end supports and along the edges parallel to the span and the "
+         "assembly bars follow the detailing rules given there (EC2 9.3).")
     for s in plan.notes:
         nt.p(s, italic=True)
     sch = plan.schedule
@@ -110,7 +111,15 @@ def note_section(nt, P, out):
                      "; ".join(b.where)))
     nt.table(["Pos.", "Mark", "Φ", "Shape [cm]", "s [cm]", "n", "Total [m]", "Location"], rows,
              caption="Bar schedule of the slabs (BR/DR bottom, TR/AR top)")
+    meshes = sch.mesh_rows()
+    if meshes:
+        nt.table(["Pos.", "Mesh", "L × B [m]", "n", "Area [m²]", "kg/pc", "Total [kg]", "Location"],
+                 [(f"M{m.pos}", m.name, f"{m.L / 100:.2f} × {m.B / 100:.2f}", str(m.n_total),
+                   fmt(m.L * m.B * m.n_total / 1e4), fmt(m.mass), fmt(m.mass * m.n_total), "; ".join(m.where))
+                  for m in meshes], caption="Mesh schedule of the slabs (welded wire meshes, R-type)")
     tot, mass = Schedule.totals(sch.rows())
-    nt.table(["Φ [mm]", "Length [m]", "kg/m", "Mass [kg]"],
-             [(str(d), fmt(v[0]), fmt(MASS[d]), fmt(v[1])) for d, v in tot.items()] +
-             [("Total", "", "", fmt(mass))], caption="Mass of the reinforcement of the slabs")
+    mm = sum(m.mass * m.n_total for m in meshes)
+    nt.table(["Steel", "Length [m]", "kg/m", "Mass [kg]"],
+             [(f"Φ{d}", fmt(v[0]), fmt(MASS[d]), fmt(v[1])) for d, v in tot.items()] +
+             ([("Meshes", "", "", fmt(mm))] if meshes else []) +
+             [("Total", "", "", fmt(mass + mm))], caption="Mass of the reinforcement of the slabs")

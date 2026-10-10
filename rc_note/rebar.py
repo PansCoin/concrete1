@@ -36,7 +36,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
-from .design import BAR_AREA, slab_bars
+from .design import BAR_AREA, MESHES, MESH_SHEET, slab_bars
 from .engine import fmt
 
 COVER = 2.5          # cm, c_nom = 25 mm
@@ -46,6 +46,7 @@ MAX_BAR = 1200.0     # cm, longest bar
 HOOK = 15.0          # cm, hook of top bars into an edge support
 WALL = 25.0          # cm, walls and ordinary beams
 MASS = {d: 7850e-6 * a for d, a in BAR_AREA.items()}      # kg/m
+MESH_LAP = 15.0      # cm, lap of the transverse bars of the meshes
 
 
 def ceil5(v):
@@ -108,10 +109,63 @@ class Rep:
     slab: str = ""
 
 
+@dataclass
+class MeshType:
+    """One position of the mesh schedule (a mesh piece cut from a sheet)."""
+    name: str               # R188 ...
+    L: float                # cm, length along the main bars
+    B: float                # cm, width
+    face: str
+    pos: int = 0
+    n_total: int = 0
+    where: list = field(default_factory=list)
+
+    def key(self):
+        return (self.name, round(self.L), round(self.B), self.face)
+
+    def label(self):
+        return f"M{self.pos} {self.name} - {self.L / 100:.2f}/{self.B / 100:.2f} m"
+
+    @property
+    def mass(self):
+        """kg per piece (main bars along L, transverse bars along B)."""
+        d1, s1, d2, s2 = MESHES[self.name]
+        n1 = int(math.floor(self.B * 10 / s1)) + 1
+        n2 = int(math.floor(self.L * 10 / s2)) + 1
+        m = lambda d: 7850e-6 * math.pi * d * d / 4
+        return (n1 * self.L * m(d1) + n2 * self.B * m(d2)) / 100.0
+
+
+@dataclass
+class MeshZone:
+    """A zone covered with mesh pieces (drawn as rectangles with diagonals)."""
+    pieces: list                 # [(MeshType, (x0, y0, x1, y1))]
+    main: str                    # direction of the main bars: 'x' / 'y'
+    rng: tuple = None            # range (dimension) across the zone
+    face: str = "bottom"
+    slab: str = ""
+
+
 class Schedule:
     def __init__(self):
         self.types = {}
         self.order = []
+        self.mesh_types = {}
+        self.mesh_order = []
+
+    def mesh(self, name, L, B, face, where):
+        m = MeshType(name, float(round(L)), float(round(B)), face)
+        k = m.key()
+        if k not in self.mesh_types:
+            self.mesh_types[k] = m
+            self.mesh_order.append(m)
+        m = self.mesh_types[k]
+        if where and where not in m.where:
+            m.where.append(where)
+        return m
+
+    def mesh_rows(self, face=None):
+        return [m for m in sorted(self.mesh_order, key=lambda m: m.pos) if face in (None, m.face)]
 
     def get(self, mark, phi, segs, s, face, where):
         b = BarType(mark, int(phi), tuple(float(x) for x in segs), float(s), face)
@@ -125,12 +179,16 @@ class Schedule:
         return b
 
     def number(self):
-        i = 0
+        i = j = 0
         for face in ("bottom", "top"):
             for b in self.order:
                 if b.face == face:
                     i += 1
                     b.pos = i
+            for m in self.mesh_order:
+                if m.face == face:
+                    j += 1
+                    m.pos = j
 
     def rows(self, face=None):
         return [b for b in sorted(self.order, key=lambda b: b.pos) if face in (None, b.face)]
@@ -154,6 +212,9 @@ class SlabPlan:
     notes: list
     hf: dict                   # slab number -> thickness [cm]
     texts: list = field(default_factory=list)   # (x, y, text, height, rotation)
+    mesh_bottom: list = field(default_factory=list)
+    mesh_top: list = field(default_factory=list)
+    dims: dict = field(default_factory=dict)
 
 
 # ============================================================================
@@ -232,6 +293,8 @@ class Builder:
         self.inp, self.G = P.inp, P.G
         self.sch = Schedule()
         self.bottom, self.top = [], []
+        self.mesh_bottom, self.mesh_top = [], []
+        self.dims = {"bottom": [], "top": []}     # extra dimensions (zones without a drawn bar)
         self.notes, self.texts = [], []
 
     # ---------------------------------------------------------- primitives
@@ -262,14 +325,14 @@ class Builder:
             yr = y0 + frac * (y1 - y0)
             p0, p1 = (x0 - ext[0], yr), (x1 + ext[1], yr)
             xr = x0 + rfrac * (x1 - x0)
-            rng = ((xr, y0 + EDGE_GAP), (xr, y1 - EDGE_GAP))
+            rng = ((xr, y0), (xr, y1))
         else:
             L = (y1 - y0) + ext[0] + ext[1]
             n = n_override or count(x1 - x0, s)
             xr = x0 + frac * (x1 - x0)
             p0, p1 = (xr, y0 - ext[0]), (xr, y1 + ext[1])
             yr = y0 + rfrac * (y1 - y0)
-            rng = ((x0 + EDGE_GAP, yr), (x1 - EDGE_GAP, yr))
+            rng = ((x0, yr), (x1, yr))
         b = self.bar(mark, phi, [L], s, "bottom", where)
         return self.add(Rep(b, n, p0, p1, side=side, rng=rng, lab_t=lab_t, slab=slab), mult)
 
@@ -287,10 +350,10 @@ class Builder:
         rpos = c + rside * (t / 2 + 0.55 * ext)
         if direction == "x":
             p0, p1 = (c - t / 2 - ext, q), (c + t / 2 + ext, q)
-            rng = ((rpos, a0 + EDGE_GAP), (rpos, a1 - EDGE_GAP))
+            rng = ((rpos, a0), (rpos, a1))
         else:
             p0, p1 = (q, c - t / 2 - ext), (q, c + t / 2 + ext)
-            rng = ((a0 + EDGE_GAP, rpos), (a1 - EDGE_GAP, rpos))
+            rng = ((a0, rpos), (a1, rpos))
         b = self.bar("TR", phi, [leg, straight, leg], s, "top", where)
         return b, Rep(b, n, p0, p1, legs=(leg, leg), side=side, rng=rng, lab_t=lab_t, slab=slab)
 
@@ -309,10 +372,10 @@ class Builder:
         rpos = face + inward * 0.55 * ext
         if direction == "x":
             p0, p1 = (outer, q), (inner, q)
-            rng = ((rpos, a0 + EDGE_GAP), (rpos, a1 - EDGE_GAP))
+            rng = ((rpos, a0), (rpos, a1))
         else:
             p0, p1 = (q, outer), (q, inner)
-            rng = ((a0 + EDGE_GAP, rpos), (a1 - EDGE_GAP, rpos))
+            rng = ((a0, rpos), (a1, rpos))
         b = self.bar("TR", phi, [hook, straight, leg], s, "top", where)
         return b, Rep(b, n, p0, p1, legs=(hook, leg), side=side, rng=rng, lab_t=lab_t, slab=slab)
 
@@ -345,14 +408,43 @@ class Builder:
             self.canopy(res["VII"])
         self.stairs(res.get("V"))
         self.sch.number()
-        return SlabPlan(self.bottom, self.top, self.sch, self.notes, slab_thickness(self.P), self.texts)
+        return SlabPlan(self.bottom, self.top, self.sch, self.notes, slab_thickness(self.P), self.texts,
+                        self.mesh_bottom, self.mesh_top, self.dims)
+
+    # ------------------------------------------------------------- meshes
+    def mesh_zone(self, name, rect, main, face, where, slab="", rng=None):
+        """Cover rect = (x0, y0, x1, y1) with pieces of mesh 'name', main bars in
+        direction 'main'. Pieces are cut from the standard sheet: length along
+        the main bars = extent of the zone, equal widths with laps of the
+        transverse bars."""
+        x0, y0, x1, y1 = rect
+        L = (x1 - x0) if main == "x" else (y1 - y0)
+        W = (y1 - y0) if main == "x" else (x1 - x0)
+        Bs = MESH_SHEET[1]
+        if L > MESH_SHEET[0]:
+            raise ValueError(f"mesh zone longer than a sheet: {L:.0f} cm")
+        k = 1 if W <= Bs else int(math.ceil((W - Bs) / (Bs - MESH_LAP) - 1e-9)) + 1
+        B = math.ceil((W + (k - 1) * MESH_LAP) / k - 1e-6)
+        mt = self.sch.mesh(name, L, B, face, where)
+        pieces = []
+        a = y0 if main == "x" else x0
+        for i in range(k):
+            b0 = a + i * (B - MESH_LAP)
+            b1 = min(b0 + B, (y1 if main == "x" else x1))
+            b0 = b1 - B
+            pieces.append((mt, (x0, b0, x1, b1) if main == "x" else (b0, y0, b1, y1)))
+        mt.n_total += k
+        z = MeshZone(pieces, main, rng, face, slab)
+        (self.mesh_bottom if face == "bottom" else self.mesh_top).append(z)
+        return z
 
     # ------------------------------------------------------------- hall
     def hall(self, R):
+        """Slabs 1..n of the hall: welded wire meshes (section II, part 8)."""
         lay, inp, G = self.lay, self.inp, self.G
         X = lay.X
-        hf = R["hf"]
         D = R["design"]
+        Mh = D["mesh"]
         n = D["n"]
         tb, t2 = inp.B5_b, inp.B15_b
         yb = lay.hall_y
@@ -365,57 +457,43 @@ class Builder:
 
         panels = [(yb[j] + tw(j) / 2, yb[j + 1] - tw(j + 1) / 2) for j in range(n)]
         nos = [n - j for j in range(n)]                       # slab numbers (1 at axis E)
-        phid, sd = D["dist"]["phi"], sp(D["dist"]["s"])
-        r1 = D["span"][1]
+        wh = f"slabs {G.no_hall}"
         for k, (x0, x1, tl, tr) in enumerate(bays):
-            W = x1 - x0
             for j, (y0, y1) in enumerate(panels):
-                i = n - j                                     # span number 1..n (1 at E)
+                i = n - j
                 sym = min(i, n + 1 - i)
-                r = D["span"][sym]
-                no = nos[j]
-                where = f"slabs {G.no_hall}, span {sym}"
-                self.bottom_bars("BR", (x0, y0, x1, y1), "y", r["phi"], sp(r["s"]),
-                                 (tw(j) - COVER, tw(j + 1) - COVER), 0.53 if j % 2 else 0.60, 0.74,
-                                 where, str(no), side=1, lab_t=0.5)
-                self.bottom_bars("DR", (x0, y0, x1, y1), "x", phid, sd, (tl - COVER, tr - COVER),
-                                 0.27 if k == 0 else 0.35, 0.88, f"slabs {G.no_hall}, distribution",
-                                 str(no), side=-1, lab_t=0.24)
-            # top bars over the secondary beams
+                yr = y0 + 0.82 * (y1 - y0)
+                self.mesh_zone(Mh[("span", sym)], (x0, y0 - (tw(j) - COVER), x1, y1 + (tw(j + 1) - COVER)),
+                               "y", "bottom", f"{wh}, bottom, span {sym}", str(nos[j]),
+                               rng=((x0, yr), (x1, yr)))
+            # strips over the secondary beams
             for j in range(1, n):
                 sym = min(j, n - j)
-                r = D["sup"][names[sym]]
                 lcl = max(panels[j - 1][1] - panels[j - 1][0], panels[j][1] - panels[j][0])
                 ext = ceil5(0.3 * lcl)
-                frac = 0.22 if j % 2 else 0.60
-                b, rep = self.top_over(yb[j], tb, "y", (x0, x1), r["phi"], sp(r["s"]), ext, hf, frac,
-                                       f"slabs {G.no_hall}, over support {names[sym]}", "",
-                                       side=-1, lab_t=0.5, rside=1 if j % 2 else -1)
-                self.with_ar(rep, W + (tl - COVER) + (tr - COVER), hf, f"slabs {G.no_hall}, under TR")
+                yr = yb[j] + tb / 2 + 0.5 * ext
+                self.mesh_zone(Mh[("sup", names[sym])], (x0, yb[j] - tb / 2 - ext, x1, yb[j] + tb / 2 + ext),
+                               "y", "top", f"{wh}, over support {names[sym]}", rng=((x0, yr), (x1, yr)))
             # end supports on axes A and E
-            phe, se = edge_top_bars(r1, hf)
             for j, face, inward in ((0, panels[0][0], 1), (n - 1, panels[-1][1], -1)):
                 ext = ceil5(0.2 * (panels[j][1] - panels[j][0]))
-                b, rep = self.top_edge(face, WALL, inward, "y", (x0, x1), phe, se, ext, hf, 0.36,
-                                       f"slabs {G.no_hall}, edges A / E", "", side=-1)
-                self.with_ar(rep, W + (tl - COVER) + (tr - COVER), hf, f"slabs {G.no_hall}, under TR")
-        # constructive top bars along axes 1, 2, 3 (edges parallel to the span)
-        phc, sc = constructive_top(hf)
+                a, b = face - inward * (WALL - COVER), face + inward * ext
+                yr = face + inward * 0.5 * ext
+                self.mesh_zone(Mh["edge"], (x0, min(a, b), x1, max(a, b)), "y", "top",
+                               f"{wh}, edges A / E", rng=((x0, yr), (x1, yr)))
+        # constructive strips along axes 1, 2, 3 (main bars across the axis)
         lsh = panels[1][1] - panels[1][0]
         extc = ceil5(max(0.2 * lsh, 40.0))
-        ycl = (panels[0][0], panels[-1][1])
-        ntot = sum(count(y1 - y0, sc) for y0, y1 in panels)
-        jr = n // 2 - 1                                   # panel where the bar is drawn
-        fr = (panels[jr][0] + 0.5 * (panels[jr][1] - panels[jr][0]) - ycl[0]) / (ycl[1] - ycl[0])
-        run = lsh + 2 * (tb - COVER)
-        where = f"slabs {G.no_hall}, edges on axes 1, 2, 3"
-        b, rep = self.top_over(X["2"], t2, "x", ycl, phc, sc, extc, hf, fr, where, "",
-                               side=1, n_override=ntot, rside=1)
-        self.with_ar(rep, run, hf, where, runs=n)
-        for xf, inward in ((X["1"] + WALL / 2, 1), (X["3"] - WALL / 2, -1)):
-            b, rep = self.top_edge(xf, WALL, inward, "x", ycl, phc, sc, extc, hf, fr, where, "",
-                                   side=1, n_override=ntot)
-            self.with_ar(rep, run, hf, where, runs=n)
+        strips = [(X["1"] + WALL / 2 - (WALL - COVER), X["1"] + WALL / 2 + extc),
+                  (X["2"] - t2 / 2 - extc, X["2"] + t2 / 2 + extc),
+                  (X["3"] - WALL / 2 - extc, X["3"] - WALL / 2 + (WALL - COVER))]
+        for xa, xb in strips:
+            xr = xa + 0.7 * (xb - xa)
+            for j, (y0, y1) in enumerate(panels):
+                self.mesh_zone(Mh["constr"], (xa, y0, xb, y1), "x", "top", f"{wh}, edges on axes 1, 2, 3",
+                               rng=((xr, y0), (xr, y1)))
+        self.notes.append(f"Slabs {G.no_hall}: welded wire meshes (R-type, main bars along the span, "
+                          f"laps of the transverse bars {fmt(MESH_LAP * 10)} mm). Top meshes on spacers.")
 
     # ------------------------------------------------------------- meeting room
     def room(self, R):
@@ -466,6 +544,9 @@ class Builder:
         for face, inward in ((y0, 1), (y1, -1)):
             b, rep = self.top_edge(face, WALL, inward, "y", xcl, phc, sc, extc, hf, fr, where, "",
                                    side=-1, n_override=ntot)
+            yr = rep.rng[0][1]
+            rep.rng = None                    # the bars stop at the beams: one dimension per panel
+            self.dims["top"] += [((x0, yr), (x1, yr)) for x0, x1 in panels]
             self.with_ar(rep, lsh + 2 * e, hf, where, runs=n)
 
     # ------------------------------------------------------------- corridor
@@ -496,7 +577,7 @@ class Builder:
             L = s1 - s0
             b = self.bar("DR", phid, [L], sd, "bottom", f"slab {no}, distribution")
             self.add(Rep(b, count(H, sd), (s0, yk), (s1, yk), side=-1,
-                         rng=((xa + 0.88 * (xb - xa), y0 + EDGE_GAP), (xa + 0.88 * (xb - xa), y1 - EDGE_GAP)),
+                         rng=((xa + 0.88 * (xb - xa), y0), (xa + 0.88 * (xb - xa), y1)),
                          lab_t=0.30, slab=str(no)))
             tops.append((xa, xb, s1 - s0))
         # top bars at the edge supports B and D
@@ -629,7 +710,7 @@ class Builder:
             xq = x0 + 0.62 * W
             rep = Rep(b, count(W, sp(rc["s"])), (xq, y_tip + COVER), (xq, y_root + WALL + ext_in),
                       legs=(tip_leg, leg), side=-1,
-                      rng=((x0 + EDGE_GAP, y_root - 0.62 * inp.d), (x1 - EDGE_GAP, y_root - 0.62 * inp.d)),
+                      rng=((x0, y_root - 0.62 * inp.d), (x1, y_root - 0.62 * inp.d)),
                       lab_t=0.30, slab=str(no))
             self.add(rep)
             # distribution bars in the cantilever (top, under the main bars)
@@ -637,7 +718,7 @@ class Builder:
             bd = self.bar("DR", phd, [Ld], sd, "top", f"balconies {G.no_balcony[0]}, {G.no_balcony[1]}")
             yd = y_root - 0.30 * inp.d
             self.add(Rep(bd, count(inp.d, sd), (x0 + COVER, yd), (x1 - COVER, yd), side=-1,
-                         rng=((x0 + 0.18 * W, y_tip + EDGE_GAP), (x0 + 0.18 * W, y_root - EDGE_GAP)),
+                         rng=((x0 + 0.18 * W, y_tip), (x0 + 0.18 * W, y_root)),
                          lab_t=0.30, slab=str(no)))
 
     # ------------------------------------------------------------- canopy slab 7
@@ -659,14 +740,14 @@ class Builder:
         xq = x0 + 0.70 * W
         self.add(Rep(b, count(W, sp(r["s"])), (xq, y_tip - COVER), (xq, y_root - inp.BT_b + COVER),
                      legs=(tip_leg, anch), side=-1,
-                     rng=((x0 + EDGE_GAP, y_root + 0.70 * (y_tip - y_root)),
-                          (x1 - EDGE_GAP, y_root + 0.70 * (y_tip - y_root))),
+                     rng=((x0, y_root + 0.70 * (y_tip - y_root)),
+                          (x1, y_root + 0.70 * (y_tip - y_root))),
                      lab_t=0.62, slab=str(no)))
         phd, sd = dist_bars(r["As_prov"], hf)
         bd = self.bar("DR", phd, [W - 2 * COVER], sd, "top", f"canopy slab {no}")
         yd = y_root + 0.35 * (y_tip - y_root)
         self.add(Rep(bd, count(y_tip - y_root, sd), (x0 + COVER, yd), (x1 - COVER, yd), side=-1,
-                     rng=((x0 + 0.2 * W, y_root + EDGE_GAP), (x0 + 0.2 * W, y_tip - EDGE_GAP)),
+                     rng=((x0 + 0.2 * W, y_root), (x0 + 0.2 * W, y_tip)),
                      lab_t=0.5, slab=str(no)))
 
     # ------------------------------------------------------------- stairs

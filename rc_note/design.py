@@ -332,3 +332,40 @@ def column_bars(As_req, b, h, dias=(16, 18, 20, 22, 25, 28)):
                 break
     _, n, phi, As = best
     return f"{n}Φ{phi}", As, phi, n
+
+
+# ============================================================================
+# Welded wire meshes (R-type: main bars in the long direction of the sheet)
+# ============================================================================
+# name: (Φ main [mm], spacing main [mm], Φ transverse [mm], spacing transverse [mm])
+MESHES = {
+    "R131": (5.0, 150, 4.2, 250),
+    "R188": (6.0, 150, 4.2, 250),
+    "R221": (6.5, 150, 4.5, 250),
+    "R257": (7.0, 150, 4.5, 250),
+    "R335": (8.0, 150, 5.0, 250),
+    "R424": (9.0, 150, 5.5, 250),
+    "R524": (10.0, 150, 6.0, 250),
+}
+MESH_SHEET = (500.0, 215.0)     # cm, standard sheet: length (main bars) x width
+
+
+def mesh_area(name):
+    """(A_s main, A_s transverse) [mm²/m]."""
+    d1, s1, d2, s2 = MESHES[name]
+    return math.pi * d1 ** 2 / 4 * 1000 / s1, math.pi * d2 ** 2 / 4 * 1000 / s2
+
+
+def mesh_mass_m2(name):
+    a1, a2 = mesh_area(name)
+    return (a1 + a2) * 7850e-6
+
+
+def mesh_for(As_req, h_mm=None, start=None):
+    """Lightest R-mesh with A_s ≥ As_req (main bars at 150 mm ≤ min(2h; 250))."""
+    names = list(MESHES)
+    i0 = names.index(start) if start else 0
+    for n in names[i0:]:
+        if mesh_area(n)[0] + 1e-6 >= As_req:
+            return n
+    return names[-1]
