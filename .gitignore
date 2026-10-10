@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+/Explanatory_note_*.docx
+/Formwork_*.dxf
+/Slab_reinforcement_*.dxf
+/*.png
