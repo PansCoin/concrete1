@@ -585,7 +585,7 @@ def section_X(nt, P_):
     Nbase = {lc: react(1.35, 1.5, pat, M.nodes[(M.yC, 0)]) for lc, pat in LCs.items()}
     Nk = react(1.0, 1.0, allQ, M.nodes[(M.yC, 0)])
     P_.res["X"] = dict(N_Ed=Nbase["LC1"][1], M_Ed=Nbase["LC1"][2], N_k=Nk[1], M_k=Nk[2],
-                       hc=inp.C7_h, bc=inp.C7_b,
+                       hc=inp.C7_h, bc=inp.C7_b, hB15=hB15,
                        summary=[("Frame beam B15", f"{fmt(inp.B15_b)}/{fmt(hB15)} cm: span {r1['bars']}, "
                                  f"over C7 {r2['bars']}, over C1 {r3['bars']}, links {sh['links']}"),
                                 ("Column C7 (1st storey)", f"{fmt(inp.C7_b)}/{fmt(inp.C7_h)} cm, {out['C7'][0]}"),
@@ -686,6 +686,7 @@ def _section_XI(nt, P_, Hf_force=0):
     if not dry(nt):
         f = pl.footing(L.v * 100, B.v * 100, hc, bc, Hf / 10, "Pad footing under C7", "XI_footing")
         nt.fig(f, "Pad footing - plan and section", 13)
-    P_.res["XI"] = dict(summary=[("Footing under C7", f"{fmt(L.v * 100)} × {fmt(B.v * 100)} × {fmt(Hf / 10)} cm, "
+    P_.res["XI"] = dict(L=L.v * 100, B=B.v * 100, H=Hf / 10,
+                        summary=[("Footing under C7", f"{fmt(L.v * 100)} × {fmt(B.v * 100)} × {fmt(Hf / 10)} cm, "
                                   f"{r['bars']} both ways")])
     return okp, Hf

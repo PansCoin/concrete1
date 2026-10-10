@@ -21,7 +21,8 @@ class ProjectRun:
         self.workdir = workdir or tempfile.mkdtemp(prefix="rcnote_")
         self.plot = Plotter(os.path.join(self.workdir, "figs"))
         self.res = {}
-        self.log = []
+        self.log = []         # sizes chosen automatically
+        self.warn = []        # messages for the user (not written in the note)
 
 
 def auto_size(nt, fn, P, start, given=0, step=1, maxsteps=15, label=""):
@@ -87,9 +88,15 @@ def title_page(nt, P):
          f"({inp.n_floors} storeys). Level of the designed slab: +{fmt(inp.hb / 100)} m.")
 
 
-def build(inp: Inputs, out_path: str, workdir=None, sections=None, verbose=True):
+def build(inp: Inputs, out_path: str, workdir=None, sections=None, verbose=True,
+          drawings=True, png=False):
+    """Calculations -> DXF drawings (formwork + slab reinforcement) -> Word note.
+    The drawings are written next to the note; if they cannot be made (ezdxf
+    missing, input outside the range of the template) the note is still
+    written and the reason is reported in P.log."""
     from . import sec_slabs, sec_members, sec_frame
     P = ProjectRun(inp, workdir)
+    P.drawings = None
     nt = Note()
     title_page(nt, P)
     sel = sections or ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI"]
@@ -111,10 +118,31 @@ def build(inp: Inputs, out_path: str, workdir=None, sections=None, verbose=True)
             if verbose:
                 print(f"  section {key} ...", flush=True)
             fn()
+    if drawings:
+        if verbose:
+            print("  drawings (DXF) ...", flush=True)
+        make_drawings(nt, P, out_path, png)
     if "summary" in P.res or True:
         summary(nt, P)
     nt.save(out_path)
     return P
+
+
+def make_drawings(nt, P, out_path, png=False):
+    try:
+        from . import drawings
+        from .dxf_formwork import FormworkError
+    except ImportError as e:                      # ezdxf not installed
+        P.warn.append(f"drawings skipped: {e} (pip install ezdxf)")
+        return
+    name = os.path.splitext(os.path.basename(out_path))[0].replace("Explanatory_note_", "")
+    try:
+        out = drawings.make(P, os.path.dirname(os.path.abspath(out_path)), name, png=png)
+    except FormworkError as e:
+        P.warn.append(f"drawings skipped: {e}")
+        return
+    P.drawings = out
+    drawings.note_section(nt, P, out)
 
 
 def summary(nt, P):

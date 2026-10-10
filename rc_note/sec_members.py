@@ -394,7 +394,13 @@ def _section_VII(nt, P_, hcm):
     tt, At, _, _ = beam_bars(max(top.v, 2 * BAR_AREA[12]), bmm)
     nt.p(f"Adopted: bottom {tb} ({fmt(Ab)} mm²), top {tt} ({fmt(At)} mm²), "
          f"side bars {max(2, math.ceil(side.v / BAR_AREA[12]))}Φ12 on each face.", bold=True)
-    P_.res["VII"] = dict(summary=[("Torsion beam (axis E, 3-4)",
+    nt.h2(f"6. Canopy slab {s7} - top reinforcement at the root of the cantilever")
+    Mc = nt.calc(f"M_Ed,{s7}", N(1.35) * Mcg + N(1.5) * Msk, "kNm/m", "Design moment at the root (per metre)")
+    hc = S("h", inp.hf_canopy * 10, "mm")
+    dc = nt.calc(f"d_{s7}", hc - S("c_nom", 25, "mm") - S("φ", 10, "mm") / 2, "mm")
+    rc = bending(nt, Mc, S("b", 1000, "mm"), dc, mat, "", kind="slab", h=hc, tag=str(s7))
+    P_.res["VII"] = dict(h=hcm, canopy=dict(design=rc, lc=lc.v, hf=inp.hf_canopy),
+                         summary=[("Torsion beam (axis E, 3-4)",
                                    f"{fmt(inp.BT_b)}/{fmt(hcm)} cm, bottom {tb}, top {tt}, links Φ{phi_w}/{fmt(s / 10)}")])
     return ok1 and r["ok"]
 

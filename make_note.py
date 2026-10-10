@@ -7,15 +7,19 @@ make_note.py - RC course project: explanatory note generator
 Enter the "Input data" of the assignment sheet and the program writes the
 complete explanatory note (sections I - XI) as a Word document, with
 every formula written as a Word equation (symbols -> numbers -> result),
-the static schemes and the M / V / N diagrams.
+the static schemes and the M / V / N diagrams, and the DXF drawings
+(formwork plan and bottom / top reinforcement plans of the slab, with the
+bars from the calculations).
 
 Usage
 -----
     python make_note.py                      # asks for the values
     python make_note.py my_input.json        # reads them from a file
     python make_note.py --example            # writes input_example.json to edit
+    python make_note.py my_input.json --png  # also PNG previews of the drawings
+    python make_note.py my_input.json --no-dxf   # only the Word note
 
-Requirements:  pip install python-docx matplotlib numpy
+Requirements:  pip install python-docx matplotlib numpy ezdxf
 """
 from __future__ import annotations
 
@@ -89,10 +93,18 @@ def main(argv):
     name = (inp.student or "student").replace(" ", "_")
     out = os.path.abspath(f"Explanatory_note_{name}.docx")
     print("\nCalculating ...")
-    P = runner.build(inp, out)
+    P = runner.build(inp, out, drawings="--no-dxf" not in argv, png="--png" in argv)
     print("\nAutomatically chosen sizes:")
     for line in P.log:
         print("   ", line)
+    if P.drawings:
+        print("\nDrawings:")
+        for line in P.drawings["report"]:
+            print("   ", line)
+        for f in P.drawings["files"]:
+            print("    ->", f)
+    for line in P.warn:
+        print("NOTE:", line)
     print(f"\nDone:  {out}")
     print("Open it in Word and right-click the table of contents -> 'Update field'.")
 

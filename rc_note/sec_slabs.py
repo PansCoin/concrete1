@@ -36,6 +36,7 @@ def detailing_one_way(nt, As_main, hf_cm, s_main):
               "A_s,min; 5Φ8/m), length 0.2·l_min from the face of the support + l_bd.")
     nt.bullet("Bottom bars are anchored at end supports with l_bd and lapped over interior supports; "
               "top bars over interior supports extend 0.3·l_min beyond the face of the support.")
+    return dict(phi=phi, s=s, As=Asd)
 
 
 # ============================================================================
@@ -84,8 +85,9 @@ def section_I(nt, P_, hf):
     okd = deflection_ld(nt, leff.v * 10, d, r["rho"], r["rho_prov"], r["As"], r["As_prov"], mat, 1.0,
                         L["gk"].v, L["qk"].v, L["gd"].v, L["qd"].v)
     nt.h2("7. Detailing")
-    detailing_one_way(nt, r["As_prov"], hf, r["s"])
+    dist = detailing_one_way(nt, r["As_prov"], hf, r["s"])
     P_.res["I"] = dict(hf=hf, bars=r["bars"], M=M.v, V=V.v, gk=L["gk"].v, slab=G.no_corr,
+                       design=dict(span=r, dist=dist),
                        summary=[(f"Slab {G.no_corr} (corridor, simply supported)", f"h_f = {fmt(hf)} cm, {r['bars']}")])
     return r["ok"] and sh["ok"] and okd
 
@@ -207,12 +209,15 @@ def section_II(nt, P_, hf):
     okd = deflection_ld(nt, spans[0] * 1000, d, r1["rho"], r1["rho_prov"], r1["As"], r1["As_prov"], mat,
                         1.3, L["gk"].v, L["qk"].v, L["gd"].v, L["qd"].v)
     nt.h2("7. Detailing")
-    detailing_one_way(nt, r1["As_prov"], hf, r1["s"])
+    dist = detailing_one_way(nt, r1["As_prov"], hf, r1["s"])
     nt.table(["Section", "M_Ed [kNm/m]", "A_s,req [mm²/m]", "Adopted reinforcement", "A_s,prov [mm²/m]"],
              [(f"{'Span' if k == 'span' else 'Support'} {i}", fmt(abs(M.v)), fmt(res[(k, i)]["As"]),
                res[(k, i)]["bars"], fmt(res[(k, i)]["As_prov"])) for k, i, M in moments],
              caption="Reinforcement of the continuous slab")
     P_.res["II"] = dict(hf=hf, gk=L["gk"].v, spans=spans, env=env,
+                        design=dict(span={i: res[("span", i)] for i in range(1, nh + 1)},
+                                    sup={sup_names[j]: res[("sup", sup_names[j])] for j in range(1, nh + 1)},
+                                    dist=dist, n=n),
                         summary=[(f"Slabs {G.no_hall} (hall, continuous)",
                                   f"h_f = {fmt(hf)} cm, span 1: {res[('span', 1)]['bars']}, support B: "
                                   f"{res[('sup', 'B')]['bars']}")])
@@ -309,12 +314,12 @@ def section_III(nt, P_, hf):
     okd = deflection_ld(nt, l1.v * 10, d, r1["rho"], r1["rho_prov"], r1["As"], r1["As_prov"], mat, 1.3,
                         L["gk"].v, L["qk"].v, L["gd"].v, L["qd"].v)
     nt.h2("7. Detailing")
-    detailing_one_way(nt, r1["As_prov"], hf, r1["s"])
+    dist = detailing_one_way(nt, r1["As_prov"], hf, r1["s"])
     nt.table(["Section", "M_Ed [kNm/m]", "A_s,req [mm²/m]", "Adopted", "A_s,prov [mm²/m]"],
              [(nm, fmt(M.v), fmt(r["As"]), r["bars"], fmt(r["As_prov"])) for nm, M, r in
               (("End span", M1, r1), ("First interior support", MB, rB), ("Interior span/support", M2, r2))],
              caption="Reinforcement of the slabs in the meeting room")
-    P_.res["III"] = dict(hf=hf, gk=L["gk"].v,
+    P_.res["III"] = dict(hf=hf, gk=L["gk"].v, design=dict(r1=r1, rB=rB, r2=r2, dist=dist),
                          summary=[(f"Slabs {nos} (meeting room, plastic)",
                                    f"h_f = {fmt(hf)} cm, end span {r1['bars']}, support B {rB['bars']}")])
     return r1["ok"] and rB["ok"] and r2["ok"] and sh["ok"] and okd and okx
@@ -480,7 +485,7 @@ def section_IV(nt, P_, hf):
               ((f"{s1}/{s3} x", Mx1, "x1"), (f"{s1}/{s3} y", My1, "y1"), (f"{s2} x", Mx2, "x2"),
                (f"{s2} y", My2, "y2"), ("supports 5, 6", Msf, "sup"), ("balcony root", Mc, "c"))],
              caption="Reinforcement of the slabs in two directions")
-    P_.res["IV"] = dict(hf=hf, gk=L["gk"].v, qk=L["qk"].v, gkc=gkc.v,
+    P_.res["IV"] = dict(hf=hf, gk=L["gk"].v, qk=L["qk"].v, gkc=gkc.v, design=R,
                         summary=[(f"Slabs {s1}, {s2}, {s3} (offices, two-way)",
                                   f"h_f = {fmt(hf)} cm, x: {R['x1']['bars']}, y: {R['y1']['bars']}, "
                                   f"supports: {R['sup']['bars']}"),
