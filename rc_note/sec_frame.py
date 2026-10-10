@@ -472,6 +472,15 @@ def section_X(nt, P_):
                 best["V"] = (Vm, (lc, j))
     nt.table(["LC", "Floor", "max M_span", "M at C7", "M at C1", "max |V|"], rows,
              caption="Frame beam B15 - design values [kNm, kN]")
+    # envelope of the bending moments of B15 over all load cases and floors (tension-shift diagram)
+    env_X, env_max, env_min = None, None, None
+    for lc in LCs:
+        for j in range(1, nlev):
+            Xb, Mb_, _ = beam_vals(lc, j)
+            if env_X is None:
+                env_X, env_max, env_min = Xb, Mb_.copy(), Mb_.copy()
+            else:
+                env_max, env_min = np.maximum(env_max, Mb_), np.minimum(env_min, Mb_)
     # columns
     def col_vals(lc, tag, j):
         ids = M.col_elems[(tag, j)]
@@ -588,7 +597,9 @@ def section_X(nt, P_):
     Nk = react(1.0, 1.0, allQ, M.nodes[(M.yC, 0)])
     P_.res["X"] = dict(N_Ed=Nbase["LC1"][1], M_Ed=Nbase["LC1"][2], N_k=Nk[1], M_k=Nk[2],
                        hc=inp.C7_h, bc=inp.C7_b, hB15=hB15,
-                       design=dict(r1=r1, r2=r2, r3=r3, sh=sh, nhang=nhang, cols=out, ys_sec=M.ys_sec),
+                       design=dict(r1=r1, r2=r2, r3=r3, sh=sh, nhang=nhang, cols=out, ys_sec=M.ys_sec, d=d.v,
+                                   diag=dict(X=list(map(float, env_X)), Mmax=list(map(float, env_max)),
+                                             Mmin=list(map(float, env_min)), V=Vmax, cot=2.5)),
                        summary=[("Frame beam B15", f"{fmt(inp.B15_b)}/{fmt(hB15)} cm: span {r1['bars']}, "
                                  f"over C7 {r2['bars']}, over C1 {r3['bars']}, links {sh['links']}"),
                                 ("Column C7 (1st storey)", f"{fmt(inp.C7_b)}/{fmt(inp.C7_h)} cm, {out['C7'][0]}"),

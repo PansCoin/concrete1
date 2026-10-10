@@ -86,7 +86,7 @@ Also in the element drawings: every bar is drawn separately, the mirrored ones t
 own label); all overlaps of bars (laps over the supports, assembly bars lapped with the support bars,
 laps of the column bars above the slabs) are dimensioned; the frame on axis 2 shows the vertical bars of
 the columns separately with the lengths of their parts (in the footing, in the storey, in the beam, lap);
-beams B21 and B5 have the diagram of the tensile force M_Ed/z shifted by a_l = 0.45·d·cotθ, compared
+beams B21, B5 and the frame beam B15 have the diagram of the tensile force M_Ed/z shifted by a_l = 0.45·d·cotθ, compared
 with the force the bars can take (A_s·f_yd per bar), with ΔF_td = 0.5·V_Ed·cotθ.
 In the slab plans every overlap is dimensioned too: side laps of the meshes, meshes and bottom bars
 overlapping in the beams, laps of the distribution bars.

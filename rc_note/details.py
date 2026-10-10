@@ -430,19 +430,11 @@ def draw_shift(sh, sp, y0):
     cap_t = list(S.get("top", []))
     Fbar = lambda b: BAR_AREA[b.phi] * fyd / 1000.0
     Rb = sum(n * Fbar(b) for b, n in cap_b)
-    Rt = sum(it[1] * Fbar(it[0]) for it in cap_t)
+    Rt = (cap_t[0][1] * Fbar(cap_t[0][0]) + max([it[1] * Fbar(it[0]) for it in cap_t[1:]] or [0])) if cap_t else 0.0
     Fmax = max(Fps.max(), Fns.max(), Rb, Rt, 1.0)
     target = 4.0 * sh.h * 3.5
-    k = None
-    for base in (1, 2, 2.5, 5):
-        for e in range(0, 5):
-            cand = base * 10 ** e
-            if Fmax / cand <= target:
-                k = cand
-                break
-        if k:
-            break
-    k = k or Fmax / target                    # kN per drawing unit (cm)
+    cands = sorted(b_ * 10 ** e for b_ in (1, 2, 2.5, 5) for e in range(0, 5))
+    k = next((c_ for c_ in cands if Fmax / c_ <= target), Fmax / target)   # kN per drawing unit (cm)
     ytop = y0 - (max(Fns.max(), Rt) / k if (S.get("Mneg") or cap_t) else 0) - 2 * sh.h
     ya = ytop                                 # axis of the diagram
     sh.text("Diagram of the tensile force (shifted by a_l)", (x_org, ya + 2.2 * sh.h +
@@ -460,15 +452,18 @@ def draw_shift(sh, sp, y0):
             h_.paths.add_polyline_path([sh.P(p) for p in pts], is_closed=True)
     # force the bars can take: one line per bar
     for grp, sgn, x_rng in ((cap_b, -1, (X[0], X[-1])), (cap_t, 1, None)):
-        acc = 0.0
-        for item in grp:
+        base = 0.0
+        for k_, item in enumerate(grp):
             b, n = item[0], item[1]
+            acc = 0.0 if k_ == 0 else base          # bars over a support stack on the continuous bars
             for i in range(n):
                 acc += Fbar(b)
                 xa, xb = item[2] if len(item) > 2 and item[2] else (x_rng or (X[0], X[-1]))
                 y = ya + sgn * acc / k
                 sh.line((xa, y), (xb, y), "D-BARS")
-                sh.text(f"F Ø{b.phi}", (X[0] - 0.6 * sh.h, y), 0.75 * sh.h, align=MR)
+                sh.text(f"F Ø{b.phi}", (xa - 0.6 * sh.h, y), 0.75 * sh.h, align=MR)
+            if k_ == 0:
+                base = acc
     # texts
     b1 = cap_b[0][0]
     Mmax = max(np.array(S["Mpos"]))
@@ -979,6 +974,13 @@ def frame_axis2(P):
                   runs=runs, zones=zones, link=lk, phi_w=phiw, hangers=hang, below=below + Hf,
                   sections=[("1-1", tA + lcl / 2, [(b1, r1["n"])], [(b4, 2)], None),
                             ("2-2", xC - tC / 2 - 25, [(b1, r1["n"])], [(b2, r2["n"]), (b4, 2)], None)])
+    dg = D.get("diag")
+    if dg:
+        sp.shift = dict(x0=xA, X=dg["X"], Mpos=dg["Mmax"], Mneg=dg["Mmin"], zp=r1["zeta"] * D["d"] / 1000,
+                        zn=r2["zeta"] * D["d"] / 1000, d=D["d"], cot=dg["cot"], V=dg["V"], fyd=inp.fyk / 1.15,
+                        bot=[(b1, r1["n"])],
+                        top=[(b4, 2, (C, L - C)), (b2, r2["n"], (xC - tC / 2 - ext, xC + tC / 2 + ext)),
+                             (b3, r3["n"], (C, C + b3.segs[1])), (b3, r3["n"], (L - C - b3.segs[1], L - C))])
     return el, sp, dict(cols=cols, below=below, Hf=Hf, Lf=Lf, xs={"C1": xA, "C7": xC, "C12": xE})
 
 
