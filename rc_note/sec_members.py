@@ -116,6 +116,7 @@ def section_V(nt, P_, hcm):
               "ends (0.2·l), bottom bars bent at the kink between flight and landing are replaced by "
               "two crossing bars anchored with l_bd.")
     P_.res["V"] = dict(h=hcm, n=n, hst=hst.v, bst=bst.v, bars=r["bars"],
+                       design=dict(r=r, lfl=lfl.v, lla=lla.v, alpha=alpha.v),
                        summary=[("Stairs", f"h = {fmt(hcm)} cm, {n} risers {fmt(hst.v)}/{fmt(bst.v)} cm, {r['bars']}")])
     return r["ok"] and sh["ok"] and okd
 
@@ -233,6 +234,7 @@ def _section_VI(nt, P_, hcm):
     okf = beam_deflection(nt, mat, bw.v * 10, hcm * 10, beff.v * 1000, hf * 10, d.v, r["As_prov"],
                           Mqp, L.v * 1000)
     P_.res["VI"] = dict(h=hcm, Rg=Rg.v, Rq=Rq.v, bars=r["bars"], links=sh["links"],
+                        design=dict(r=r, sh=sh, lcl=lcl.v, d=d.v),
                         summary=[("Beam B21", f"{fmt(inp.B21_b)}/{fmt(hcm)} cm, {r['bars']}, links {sh['links']}")])
     return r["ok"] and sh["ok"] and okf
 
@@ -390,8 +392,9 @@ def _section_VII(nt, P_, hcm):
     bot = nt.calc("A_s,bot", S("A_s", r["As"]) + AsT * S("b_k", bk) / uk, "mm²", "Bottom face: bending + torsion share")
     top = nt.calc("A_s,top", AsT * S("b_k", bk) / uk, "mm²", "Top face")
     side = nt.calc("A_s,side", AsT * S("h_k", hk) / uk, "mm²", "Each side face")
-    tb, Ab, _, _ = beam_bars(bot.v, bmm)
-    tt, At, _, _ = beam_bars(max(top.v, 2 * BAR_AREA[12]), bmm)
+    tb, Ab, phib, nbb = beam_bars(bot.v, bmm)
+    tt, At, phit, nbt = beam_bars(max(top.v, 2 * BAR_AREA[12]), bmm)
+    nside = max(2, math.ceil(side.v / BAR_AREA[12]))
     nt.p(f"Adopted: bottom {tb} ({fmt(Ab)} mm²), top {tt} ({fmt(At)} mm²), "
          f"side bars {max(2, math.ceil(side.v / BAR_AREA[12]))}Φ12 on each face.", bold=True)
     nt.h2(f"6. Canopy slab {s7} - top reinforcement at the root of the cantilever")
@@ -400,6 +403,8 @@ def _section_VII(nt, P_, hcm):
     dc = nt.calc(f"d_{s7}", hc - S("c_nom", 25, "mm") - S("φ", 10, "mm") / 2, "mm")
     rc = bending(nt, Mc, S("b", 1000, "mm"), dc, mat, "", kind="slab", h=hc, tag=str(s7))
     P_.res["VII"] = dict(h=hcm, canopy=dict(design=rc, lc=lc.v, hf=inp.hf_canopy),
+                         design=dict(bot=(phib, nbb), top=(phit, nbt), side=(12, nside), phi_w=phi_w, s=s,
+                                     lcl=lcl.v),
                          summary=[("Torsion beam (axis E, 3-4)",
                                    f"{fmt(inp.BT_b)}/{fmt(hcm)} cm, bottom {tb}, top {tt}, links Φ{phi_w}/{fmt(s / 10)}")])
     return ok1 and r["ok"]
@@ -511,6 +516,7 @@ def _section_VIII(nt, P_, hcm):
     okd = deflection_ld(nt, L * 1000, d, r1["As"] / (inp.B5_b * 10 * d.v), r1["As_prov"] / (inp.B5_b * 10 * d.v),
                         r1["As"], r1["As_prov"], mat, Kf, gk.v, qk.v, gd.v, qd.v)
     P_.res["VIII"] = dict(h=hcm, RBg=RBg.v, RBq=RBq.v, RB=RB.v, gk=gk.v, qk=qk.v, L=L,
+                          design=dict(r1=r1, rB=rB, sh=sh, nhang=nlinks, lcl=lcl.v),
                           summary=[("Beam B5-B9", f"{fmt(inp.B5_b)}/{fmt(hcm)} cm, span {r1['bars']}, "
                                     f"support {rB['bars']}, links {sh['links']}")])
     return r1["ok"] and rB["ok"] and sh["ok"] and okd

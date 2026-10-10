@@ -60,6 +60,10 @@ class Inputs:
         return asdict(self)
 
 
+HF_MIN = 12.0        # cm, minimum thickness of every slab
+HF_TIP = 12.0        # cm, thickness of the balconies at the free edge
+
+
 def ceil_to(v, step):
     return math.ceil(v / step - 1e-9) * step
 

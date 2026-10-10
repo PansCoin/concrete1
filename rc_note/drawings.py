@@ -18,6 +18,7 @@ from __future__ import annotations
 import os
 
 from .engine import fmt
+from .project import HF_TIP
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE = os.path.join(os.path.dirname(HERE), "templates", "formwork_template.dxf")
@@ -37,7 +38,7 @@ def size_rows(P):
         o = G.no_office
         rows.append((f"Slabs {G.no_10}, {G.no_lobby}, {o[0]}-{o[-1]} (two-way)", f"h_f = {fmt(res['IV']['hf'])} cm"))
         rows.append((f"Balconies {G.no_balcony[0]}, {G.no_balcony[1]}",
-                     f"h_f = {fmt(res['IV']['hf'])} -> 10 cm, l = {fmt(inp.d)} cm"))
+                     f"h_f = {fmt(res['IV']['hf'])} -> {fmt(HF_TIP)} cm, l = {fmt(inp.d)} cm"))
     if "VII" in res:
         rows.append((f"Canopy slab {G.no_stairs[0]}", f"h_f = {fmt(inp.hf_canopy)} cm, l = {fmt(1.25 * inp.d)} cm"))
     if "V" in res:
@@ -72,7 +73,7 @@ def make(P, out_dir, name, png=False, template=TEMPLATE):
     plan = rebar.build(P, lay)
     f_reb = os.path.join(out_dir, f"Slab_reinforcement_{name}.dxf")
     title = f"{inp.student}  {inp.faculty_no}".strip()
-    doc, pitch = dxf_rebar.write(f_form, f_reb, lay, plan, inp, title_extra=title)
+    doc, pitch = dxf_rebar.write(f_form, f_reb, lay, plan, inp, title_extra=title, P=P)
     files = [f_form, f_reb]
     if png:
         X, Y = lay.X, lay.Y
@@ -84,6 +85,13 @@ def make(P, out_dir, name, png=False, template=TEMPLATE):
         dxf_formwork.render_png(doc, p2, box=box)
         dxf_formwork.render_png(doc, p3, box=(box[0] + pitch, box[1], box[2] + pitch, box[3]))
         files += [p1, p2, p3]
+        if plan.details:
+            from ezdxf import bbox as ezbbox
+            e = ezbbox.extents(doc.modelspace(), fast=True)
+            p4 = f_reb[:-4] + "_details.png"
+            dxf_formwork.render_png(doc, p4, box=(box[0], e.extmin.y - 50, box[0] + 2 * pitch,
+                                                  Y["A"] - inp.d - 500), width_px=4000)
+            files.append(p4)
     return dict(files=files, plan=plan, layout=lay, report=lay.report + lay.warnings)
 
 
@@ -91,7 +99,7 @@ def note_section(nt, P, out):
     """Section of the explanatory note: drawings and bar schedule."""
     from .rebar import Schedule, MASS
     plan = out["plan"]
-    nt.h1("XII. Drawings and bar schedule of the slabs")
+    nt.h1("XII. Drawings and bar schedules")
     nt.p("The following drawings were produced from the results of the calculations (DXF, scale 1:50, "
          "drawing unit = 1 cm):")
     for f in out["files"]:
@@ -111,6 +119,21 @@ def note_section(nt, P, out):
                      "; ".join(b.where)))
     nt.table(["Pos.", "Mark", "Φ", "Shape [cm]", "s [cm]", "n", "Total [m]", "Location"], rows,
              caption="Bar schedule of the slabs (BR/DR bottom, TR/AR top)")
+    if plan.details:
+        nt.h2("Reinforcement drawings of the elements")
+        nt.p("The reinforcement file contains also the detail drawings of the elements designed in the note "
+             "(elevations, cross-sections, bars drawn separately, bar schedules): " +
+             "; ".join(el.title for el in plan.details) + ".")
+        rows = []
+        for el in plan.details:
+            for b in el.bars:
+                rows.append((el.title.split(" - ")[0], str(b.pos), f"Φ{b.phi}", "+".join(fmt(x) for x in b.segs),
+                             str(b.n), fmt(b.L * b.n / 100), fmt(b.L * b.n / 100 * MASS.get(b.phi, 0))))
+        nt.table(["Element", "Pos.", "Φ", "Shape [cm]", "n", "Total [m]", "Mass [kg]"], rows,
+                 caption="Bar schedule of the elements")
+        nt.table(["Element", "Mass [kg]"], [(el.title.split(" - ")[0], fmt(el.mass)) for el in plan.details] +
+                 [("Total", fmt(sum(el.mass for el in plan.details)))], caption="Mass of the reinforcement of the elements")
+        nt.h2("Slabs")
     meshes = sch.mesh_rows()
     if meshes:
         nt.table(["Pos.", "Mesh", "L × B [m]", "n", "Area [m²]", "kg/pc", "Total [kg]", "Location"],

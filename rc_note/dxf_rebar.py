@@ -398,7 +398,7 @@ def schedule_tables(msp, x0, y0, bars, meshes, title, slab_total=None):
 # ============================================================================
 # the drawing
 # ============================================================================
-def write(formwork_path, out_path, lay, plan, inp, title_extra=""):
+def write(formwork_path, out_path, lay, plan, inp, title_extra="", P=None):
     """Writes the reinforcement plans. formwork_path = DXF of the formwork
     plan written for the same layout (used as background)."""
     doc = ezdxf.readfile(formwork_path)
@@ -448,6 +448,14 @@ def write(formwork_path, out_path, lay, plan, inp, title_extra=""):
         yy = ext.extmin.y - 60
         for i, s in enumerate(notes):
             text(msp, f"{i + 1}. {s}", (X["1"] + dx, yy - i * 20), 11.0, layer="R-TEXT", align=ML)
+    # detail drawings of the elements under the slab plans
+    details_ = []
+    if P is not None:
+        from . import details
+        details.setup(doc)
+        y_top = ext.extmin.y - 60 - 20 * (len(plan.notes) + 6) - 250
+        details_, _ = details.place(msp, P, X["1"] - 300, y_top, 2 * pitch)
+    plan.details = details_
     try:
         e = ezbbox.extents(msp, fast=True)
         doc.header["$EXTMIN"] = e.extmin

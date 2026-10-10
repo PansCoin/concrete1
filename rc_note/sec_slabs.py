@@ -9,7 +9,7 @@ import numpy as np
 from .engine import S, N, P, sqrt, emin, emax, eabs, fmt
 from .design import (NullNote, materials, bending, shear_no_links, deflection_ld,
                      slab_bars, BAR_AREA, MESHES, MESH_SHEET, mesh_area, mesh_for)
-from .project import slab_actions
+from .project import slab_actions, HF_TIP
 from .statics import ContinuousBeam, plate_coeffs
 
 
@@ -420,8 +420,8 @@ def section_IV(nt, P_, hf):
     nt.h2("2. Actions")
     L = slab_actions(nt, hf, inp.q_office, "Imposed load - offices")
     nt.p("Balconies - characteristic permanent actions:", italic=True)
-    gb1 = nt.calc("g_k,c1", (hfS + N(10)) / N(200) * N(25), "kN/m²",
-                  "Self-weight, variable thickness h_f → 10 cm (mean)")
+    gb1 = nt.calc("g_k,c1", (hfS + S("h_tip", HF_TIP, "cm")) / N(200) * N(25), "kN/m²",
+                  f"Self-weight, variable thickness h_f → {fmt(HF_TIP)} cm (mean)")
     gb2 = nt.calc("g_k,c2", N(0.10) * N(6) + N(0.04) * N(22) + N(0.02) * N(22) + N(0.02) * N(18), "kN/m²",
                   "Perlite concrete 10 cm, screed 4 cm, mosaic 2 cm, plaster 2 cm")
     gkc = nt.calc("Σg_k,c", gb1 + gb2, "kN/m²")
@@ -543,7 +543,7 @@ def section_IV(nt, P_, hf):
                                  (f"Balconies {b1}, {b2}", f"top {R['c']['bars']}")])
     if not okc:
         nt.p("Note: the simplified l/d check of the cantilever is not satisfied. The balconies are made "
-             "with a root thickness h_f and a tip thickness of 10 cm; increase the root thickness or "
+             f"with a root thickness h_f and a tip thickness of {fmt(HF_TIP)} cm; increase the root thickness or "
              "verify the deflection by calculation (EC2 7.4.3).", italic=True)
     ok = all(r["ok"] for r in R.values()) and sh["ok"] and okd
     return ok

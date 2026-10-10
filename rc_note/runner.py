@@ -11,7 +11,7 @@ from .design import NullNote
 from .engine import fmt
 from .note import Note
 from .plots import Plotter
-from .project import Geometry, Inputs
+from .project import Geometry, Inputs, HF_MIN
 
 
 class ProjectRun:
@@ -97,15 +97,20 @@ def build(inp: Inputs, out_path: str, workdir=None, sections=None, verbose=True,
     from . import sec_slabs, sec_members, sec_frame
     P = ProjectRun(inp, workdir)
     P.drawings = None
+    for k in ("hf_corridor", "hf_hall", "hf_room", "hf_office", "hf_stair", "hf_canopy"):
+        v = getattr(inp, k)
+        if v and v < HF_MIN:                      # no slab thinner than 12 cm
+            P.warn.append(f"{k} = {fmt(v)} cm < {fmt(HF_MIN)} cm - raised to {fmt(HF_MIN)} cm")
+            setattr(inp, k, HF_MIN)
     nt = Note()
     title_page(nt, P)
     sel = sections or ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI"]
     steps = [
-        ("I", lambda: auto_size(nt, sec_slabs.section_I, P, 10, inp.hf_corridor, label="h_f slab I")),
-        ("II", lambda: auto_size(nt, sec_slabs.section_II, P, 10, inp.hf_hall, label="h_f slab II")),
-        ("III", lambda: auto_size(nt, sec_slabs.section_III, P, 10, inp.hf_room, label="h_f slab III")),
-        ("IV", lambda: auto_size(nt, sec_slabs.section_IV, P, 12, inp.hf_office, label="h_f slab IV")),
-        ("V", lambda: auto_size(nt, sec_members.section_V, P, 14, inp.hf_stair, label="h stair")),
+        ("I", lambda: auto_size(nt, sec_slabs.section_I, P, HF_MIN, inp.hf_corridor, label="h_f slab I")),
+        ("II", lambda: auto_size(nt, sec_slabs.section_II, P, HF_MIN, inp.hf_hall, label="h_f slab II")),
+        ("III", lambda: auto_size(nt, sec_slabs.section_III, P, HF_MIN, inp.hf_room, label="h_f slab III")),
+        ("IV", lambda: auto_size(nt, sec_slabs.section_IV, P, HF_MIN, inp.hf_office, label="h_f slab IV")),
+        ("V", lambda: auto_size(nt, sec_members.section_V, P, max(14, HF_MIN), inp.hf_stair, label="h stair")),
         ("VI", lambda: sec_members.section_VI(nt, P)),
         ("VII", lambda: sec_members.section_VII(nt, P)),
         ("VIII", lambda: sec_members.section_VIII(nt, P)),

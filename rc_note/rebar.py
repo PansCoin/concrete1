@@ -38,6 +38,7 @@ from dataclasses import dataclass, field
 
 from .design import BAR_AREA, MESHES, MESH_SHEET, slab_bars
 from .engine import fmt
+from .project import HF_TIP
 
 COVER = 2.5          # cm, c_nom = 25 mm
 EDGE_GAP = 5.0       # cm, first / last bar from the face of the support
@@ -215,6 +216,7 @@ class SlabPlan:
     mesh_bottom: list = field(default_factory=list)
     mesh_top: list = field(default_factory=list)
     dims: dict = field(default_factory=dict)
+    details: list = field(default_factory=list)   # element detail drawings (details.Element)
 
 
 # ============================================================================
@@ -698,7 +700,7 @@ class Builder:
         y_tip = y_root - inp.d
         H_off = pans[0][3] - pans[0][1]
         ext_in = max(ceil5(inp.d), ceil5(0.25 * H_off))
-        tip_leg = 10.0 - 2 * COVER                    # tip thickness 10 cm
+        tip_leg = HF_TIP - 2 * COVER                  # thickness at the free edge
         leg = max(hf - 2 * COVER, 5.0)
         phd, sd = dist_bars(rc["As_prov"], hf)
         for k, no in ((0, G.no_balcony[0]), (2, G.no_balcony[1])):

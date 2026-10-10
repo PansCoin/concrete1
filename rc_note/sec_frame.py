@@ -217,6 +217,7 @@ def section_IX(nt, P_):
          f"{fmt(min(20 * res[0][2], bc * 10, 400))} mm, reduced by 0.6 within h above/below beams "
          "and at laps (EC2 9.5.3).", italic=True)
     P_.res["IX"] = dict(N0=sections[-1][5],
+                        design=dict(sec={k: res[k] for k in (0, 1)}, s_link=min(20 * res[0][2], bc * 10, 400)),
                         summary=[("Column C10", f"{fmt(bc)}/{fmt(hc)} cm, 0-0: {res[0][0]}; 1-1: {res[1][0]}")])
     return True
 
@@ -512,7 +513,8 @@ def section_X(nt, P_):
     nt.p("Hanger reinforcement for the reactions of B5-B9 (R = 1.35·G_k,1 + 1.5·Q_k,1):", bold=True)
     Rb = nt.calc("R_B5", N(1.35) * G1 + N(1.5) * Q1, "kN")
     Ah = nt.calc("A_s,hang", Rb * N(1000) / mat["f_yd"], "mm²")
-    nt.p(f"→ {math.ceil(Ah.v / (2 * BAR_AREA[10]))} additional two-leg links Φ10 at each secondary beam "
+    nhang = math.ceil(Ah.v / (2 * BAR_AREA[10]))
+    nt.p(f"→ {nhang} additional two-leg links Φ10 at each secondary beam "
          "(or bent-up bars 2Φ16 at 45°).", bold=True)
     # ------------------------------------------------------------ design column C7
     nt.h2("4. Design of the columns")
@@ -579,13 +581,14 @@ def section_X(nt, P_):
             ax.set_title(f"N-M interaction diagram - {tag} (first order forces)", fontsize=9)
             path = pl._save(fig, f"X_NM_{tag}")
             nt.fig(path, f"Interaction diagram of column {tag} with the design forces", 11)
-        out[tag] = (txt, Asp)
+        out[tag] = (txt, Asp, phi, nbar)
     nt.p("Links in the columns: Φ8 (Φ10 for Φ25 bars), s ≤ min(20·Φ; b; 400 mm), 0.6·s in the "
          "critical regions at the beams and at laps.", italic=True)
     Nbase = {lc: react(1.35, 1.5, pat, M.nodes[(M.yC, 0)]) for lc, pat in LCs.items()}
     Nk = react(1.0, 1.0, allQ, M.nodes[(M.yC, 0)])
     P_.res["X"] = dict(N_Ed=Nbase["LC1"][1], M_Ed=Nbase["LC1"][2], N_k=Nk[1], M_k=Nk[2],
                        hc=inp.C7_h, bc=inp.C7_b, hB15=hB15,
+                       design=dict(r1=r1, r2=r2, r3=r3, sh=sh, nhang=nhang, cols=out, ys_sec=M.ys_sec),
                        summary=[("Frame beam B15", f"{fmt(inp.B15_b)}/{fmt(hB15)} cm: span {r1['bars']}, "
                                  f"over C7 {r2['bars']}, over C1 {r3['bars']}, links {sh['links']}"),
                                 ("Column C7 (1st storey)", f"{fmt(inp.C7_b)}/{fmt(inp.C7_h)} cm, {out['C7'][0]}"),
@@ -686,7 +689,7 @@ def _section_XI(nt, P_, Hf_force=0):
     if not dry(nt):
         f = pl.footing(L.v * 100, B.v * 100, hc, bc, Hf / 10, "Pad footing under C7", "XI_footing")
         nt.fig(f, "Pad footing - plan and section", 13)
-    P_.res["XI"] = dict(L=L.v * 100, B=B.v * 100, H=Hf / 10,
+    P_.res["XI"] = dict(L=L.v * 100, B=B.v * 100, H=Hf / 10, design=dict(r=r, d=d.v),
                         summary=[("Footing under C7", f"{fmt(L.v * 100)} × {fmt(B.v * 100)} × {fmt(Hf / 10)} cm, "
                                   f"{r['bars']} both ways")])
     return okp, Hf
