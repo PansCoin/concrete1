@@ -115,7 +115,8 @@ def build(inp: Inputs, out_path: str, workdir=None, sections=None, verbose=True,
         ("VII", lambda: sec_members.section_VII(nt, P)),
         ("VIII", lambda: sec_members.section_VIII(nt, P)),
         ("IX", lambda: sec_frame.section_IX(nt, P)),
-        ("X", lambda: sec_frame.section_X(nt, P)),
+        ("X", lambda: auto_size(nt, sec_frame.section_X, P, sec_frame.hB15_start(P), inp.B15_h, step=5,
+                                 maxsteps=8, label="h B15")),
         ("XI", lambda: sec_frame.section_XI(nt, P)),
     ]
     for key, fn in steps:

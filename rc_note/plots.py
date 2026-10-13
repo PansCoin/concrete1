@@ -8,6 +8,7 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
+import math
 import numpy as np  # noqa: E402
 from matplotlib.patches import Polygon, Rectangle, Circle, FancyArrowPatch  # noqa: E402
 
@@ -184,99 +185,160 @@ class Plotter:
         return self._save(fig, name)
 
     # ---------------------------------------------------------- frame plot
-    def frame(self, fr, res_or_env, kind, title, name="frame", scale=None, unit="kNm",
-              label_min=0.0, nodes_loads=None):
-        """kind: 'M', 'V', 'N' ; res_or_env: Result object, or dict
-        {elem: (xs, values)} for envelopes."""
-        fig, ax = plt.subplots(figsize=(9, 8))
+    # ------------------------------------------------------------ frames
+    @staticmethod
+    def _frame_skeleton(ax, fr):
         for e in fr.elems:
             (x1, y1), (x2, y2) = fr.nodes[e.n1], fr.nodes[e.n2]
             ax.plot([x1, x2], [y1, y2], color="k", lw=1.6)
         for n, f in fr.fix.items():
             x, y = fr.nodes[n]
             ax.add_patch(Rectangle((x - 0.25, y - 0.18), 0.5, 0.18, fc="#999", ec="k"))
+
+    @staticmethod
+    def _frame_data(fr, res_or_env, kind):
         data = {}
-        vmax = 1e-9
         for ei_, e in enumerate(fr.elems):
             if isinstance(res_or_env, dict):
-                xs, vals = res_or_env[ei_]
+                data[ei_] = res_or_env[ei_]
             else:
                 xs, N, V, M = res_or_env.internal(ei_, 11)
-                vals = {"M": M, "V": V, "N": N}[kind]
-            data[ei_] = (xs, vals)
-            vmax = max(vmax, np.abs(vals).max())
+                data[ei_] = (xs, {"M": M, "V": V, "N": N}[kind])
+        return data
+
+    def _frame_diagram(self, ax, fr, data, kind, scale=None, label_min=0.0, fs=6.5, color=None):
+        """draw a diagram on ax; data {elem: (xs, values)} or {elem: (xs, vmax, vmin)} (envelope)"""
+        vmax = 1e-9
+        for v in data.values():
+            for arr in v[1:]:
+                vmax = max(vmax, np.abs(arr).max())
         W = max(x for x, _ in fr.nodes) - min(x for x, _ in fr.nodes)
         Hh = max(y for _, y in fr.nodes) - min(y for _, y in fr.nodes)
         sc = scale or 0.11 * max(W, Hh) / vmax
+        sgn = 1 if kind in ("M", "Menv") else -1
+        cols = color or {"M": BLUE, "Menv": BLUE, "V": GREEN, "N": "#8e44ad"}[kind]
         for ei_, e in enumerate(fr.elems):
-            xs, vals = data[ei_]
             L, c, s = fr.geom(e)
             x1, y1 = fr.nodes[e.n1]
-            # normal vector: for beams (c>0) sagging moment drawn below
             nx, ny = s, -c
-            if kind == "M":
-                px = x1 + c * xs + nx * vals * sc
-                py = y1 + s * xs + ny * vals * sc
-            else:
-                px = x1 + c * xs - nx * vals * sc
-                py = y1 + s * xs - ny * vals * sc
+            xs = data[ei_][0]
             bx, by = x1 + c * xs, y1 + s * xs
-            col = {"M": BLUE, "V": GREEN, "N": "#8e44ad"}[kind]
-            ax.fill(np.concatenate([bx, px[::-1]]), np.concatenate([by, py[::-1]]),
-                    color=col, alpha=0.25, lw=0)
-            ax.plot(px, py, color=col, lw=0.9)
-        # labels at element ends (merged per node to avoid clutter)
-        done = set()
+            for k, vals in enumerate(data[ei_][1:]):
+                col = cols if kind != "Menv" else (RED if k == 0 else BLUE)
+                px = bx + sgn * nx * vals * sc
+                py = by + sgn * ny * vals * sc
+                ax.fill(np.concatenate([bx, px[::-1]]), np.concatenate([by, py[::-1]]),
+                        color=col, alpha=0.25 if kind != "Menv" else 0.18, lw=0)
+                ax.plot(px, py, color=col, lw=0.9)
+        # labels: columns at their ends, beams at the column faces (+ max span moment, N once per span)
+        colx = sorted({round(fr.nodes[n][0], 6) for n in fr.fix})
+        lab = {}          # key -> (x, y, text)
+        span_best = {}    # (y, span, k) -> (value, x, y)
         for ei_, e in enumerate(fr.elems):
-            xs, vals = data[ei_]
             if not e.tag:
                 continue
             L, c, s = fr.geom(e)
             x1, y1 = fr.nodes[e.n1]
-            nx, ny = (s, -c) if kind == "M" else (-s, c)
-            if e.tag.endswith("|s"):
-                picks = [0]
-            elif e.tag.endswith("|e"):
-                picks = [len(vals) - 1]
-            else:
-                picks = [0, len(vals) - 1]
-            if kind == "M" and abs(c) > 0.5:
-                picks.append(int(np.argmax(vals)))
-            for k in picks:
-                v = vals[k]
-                if abs(v) < label_min or abs(v) < 0.03 * vmax:
-                    continue
-                key = (round(x1 + c * xs[k], 1), round(y1 + s * xs[k], 1), round(v, 0))
-                if key in done:
-                    continue
-                done.add(key)
-                px = x1 + c * xs[k] + nx * v * sc
-                py = y1 + s * xs[k] + ny * v * sc
-                ax.text(px, py, fmt(v), fontsize=6.5, ha="center", va="center",
-                        color="k", bbox=dict(fc="white", ec="none", alpha=0.7, pad=0.3))
+            nx, ny = (s, -c) if sgn > 0 else (-s, c)
+            xs = data[ei_][0]
+            horiz = abs(c) > 0.5
+            series = list(data[ei_][1:])
+            if kind == "Menv" and not horiz:      # columns: the governing value only
+                series = [np.where(np.abs(series[0]) >= np.abs(series[1]), series[0], series[1])]
+            for kk, vals in enumerate(series):
+                if horiz:
+                    picks = [k for k in (0, len(vals) - 1) if round(x1 + c * xs[k], 6) in colx]
+                    if kind == "Menv" and kk == 0:   # beams: max in the span, min at the supports
+                        picks = []
+                    xm = x1 + c * xs[len(xs) // 2]
+                    sp = sum(1 for xc in colx if xc < xm)
+                    if kind in ("M", "Menv"):
+                        k = int(np.argmax(vals)) if kk == 0 else int(np.argmin(vals))
+                        key = (round(y1, 2), sp, kk)
+                        if kind == "M" or kk == 0:
+                            if key not in span_best or vals[k] > span_best[key][0]:
+                                span_best[key] = (vals[k], x1 + c * xs[k] + nx * vals[k] * sc,
+                                                  y1 + s * xs[k] + ny * vals[k] * sc)
+                    elif kind == "N":
+                        key = (round(y1, 2), sp, 0)
+                        span_best.setdefault(key, (vals[len(vals) // 2], xm, y1 + 0.25))
+                        picks = []
+                else:
+                    picks = [0] if e.tag.endswith("|s") else ([len(vals) - 1] if e.tag.endswith("|e") else [])
+                for k in picks:
+                    v = vals[k]
+                    if abs(v) < label_min or abs(v) < 0.03 * vmax:
+                        continue
+                    # column labels moved into the column, away from the joint
+                    t_ = xs[k] + (0 if horiz else (0.35 if k == 0 else -0.35))
+                    px, py = x1 + c * t_ + nx * v * sc, y1 + s * t_ + ny * v * sc
+                    lab[(round(px, 1), round(py, 1), round(v, 0))] = (px, py, fmt(v), v)
+        for v, px, py in span_best.values():
+            if abs(v) >= 0.03 * vmax:
+                lab[(round(px, 1), round(py, 1), round(v, 0))] = (px, py, fmt(v), v)
+        kept = []
+        for px, py, t, v in lab.values():
+            if any(abs(v - w) < 0.05 and math.hypot(px - qx, py - qy) < 1.0 for qx, qy, w in kept):
+                continue
+            kept.append((px, py, v))
+            ax.text(px, py, t, fontsize=fs, ha="center", va="center", color="k",
+                    bbox=dict(fc="white", ec="none", alpha=0.7, pad=0.3))
+
+    def _frame_loads(self, ax, levels, xs, point_loads, udls=(), fs=6.3, arrow=0.9):
+        for (x, y, lab, col) in point_loads:
+            ax.annotate("", xy=(x, y), xytext=(x, y + arrow),
+                        arrowprops=dict(arrowstyle="->", color=col, lw=1.2))
+            ax.text(x, y + arrow * 1.05, lab, ha="center", fontsize=fs, color=col, va="bottom",
+                    bbox=dict(fc="white", ec="none", alpha=0.8, pad=0.2))
+        for (x0, x1, y, lab, col) in udls:
+            t = 0.25 * arrow
+            ax.add_patch(Rectangle((x0, y + 0.05), x1 - x0, t, fc=col, ec=col, alpha=0.25, lw=0.6))
+            ax.text(x0 + 0.3, y + 0.08 + t, lab, fontsize=fs, color=col, va="bottom")
+        for y in levels[1:]:
+            ax.text(xs[-1] + 0.4, y, f"+{y:.2f}", fontsize=fs + 0.7, va="center")
+        ax.plot([xs[0]], [levels[-1] + 2.2 * arrow], alpha=0)
+
+    def frame(self, fr, res_or_env, kind, title, name="frame", scale=None, unit="kNm",
+              label_min=0.0, nodes_loads=None):
+        """kind: 'M', 'V', 'N', 'Menv' ; res_or_env: Result object, or dict
+        {elem: (xs, values)} ({elem: (xs, max, min)} for 'Menv')."""
+        fig, ax = plt.subplots(figsize=(9, 8))
+        self._frame_skeleton(ax, fr)
+        self._frame_diagram(ax, fr, self._frame_data(fr, res_or_env, kind), kind, scale, label_min)
         ax.set_aspect("equal")
         ax.axis("off")
         ax.set_title(title, fontsize=10)
         return self._save(fig, name)
 
-    def frame_loads(self, fr, levels, xs, point_loads, udl_label, title, name="frame_loads"):
-        """sketch of the frame with point loads (list of (x, y, label))."""
+    def frame_loads(self, fr, levels, xs, point_loads, udl_label, title, name="frame_loads", udls=()):
+        """sketch of the frame with point loads (list of (x, y, label, color)) and
+        distributed loads (list of (x0, x1, y, label, color))."""
         fig, ax = plt.subplots(figsize=(9, 8))
-        for e in fr.elems:
-            (x1, y1), (x2, y2) = fr.nodes[e.n1], fr.nodes[e.n2]
-            ax.plot([x1, x2], [y1, y2], color="k", lw=1.6)
-        for n, f in fr.fix.items():
-            x, y = fr.nodes[n]
-            ax.add_patch(Rectangle((x - 0.25, y - 0.18), 0.5, 0.18, fc="#999", ec="k"))
-        for (x, y, lab, col) in point_loads:
-            ax.annotate("", xy=(x, y), xytext=(x, y + 0.9),
-                        arrowprops=dict(arrowstyle="->", color=col, lw=1.2))
-            ax.text(x, y + 0.95, lab, ha="center", fontsize=6.3, color=col, rotation=90, va="bottom")
-        for y in levels[1:]:
-            ax.text(xs[-1] + 0.4, y, f"+{fmt(y)}", fontsize=7, va="center")
+        self._frame_skeleton(ax, fr)
+        self._frame_loads(ax, levels, xs, point_loads, udls)
         ax.set_aspect("equal")
         ax.axis("off")
         ax.set_title(title, fontsize=10)
+        return self._save(fig, name)
+
+    def frame_case(self, fr, levels, xs, point_loads, udls, data, title, name="frame_case",
+                   titles=("Loads [kN, kN/m]", "M [kNm]", "V [kN]", "N [kN]")):
+        """one load case / combination on one figure: load scheme, M, V and N diagrams (2 x 2).
+        data: {"M": {elem: (xs, vals)}, "V": ..., "N": ...}"""
+        fig, axs = plt.subplots(2, 2, figsize=(11, 11))
+        ax = axs[0][0]
+        self._frame_skeleton(ax, fr)
+        self._frame_loads(ax, levels, xs, point_loads, udls, fs=6.5, arrow=0.9)
+        ax.set_title(titles[0], fontsize=10)
+        for ax, kind, t in ((axs[0][1], "M", titles[1]), (axs[1][0], "V", titles[2]), (axs[1][1], "N", titles[3])):
+            self._frame_skeleton(ax, fr)
+            self._frame_diagram(ax, fr, data[kind], kind, fs=6.5)
+            ax.set_title(t, fontsize=10)
+        for ax in axs.flat:
+            ax.set_aspect("equal")
+            ax.axis("off")
+        fig.suptitle(title, fontsize=11)
+        fig.tight_layout()
         return self._save(fig, name)
 
     # --------------------------------------------------------- sketches

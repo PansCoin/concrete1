@@ -114,15 +114,15 @@ Limits of the template:
 | VII | Beam on axis E (3–4) | bending + torsion (EC2 6.3) |
 | VIII | Beam B5–B9 | 2-span continuous T-beam, envelopes, hanger reinforcement |
 | IX | Column C10 | normal forces floor by floor, α_n reduction, 2nd-order effects, N–M interaction |
-| X | Frame on axis 2 | plane frame, 5 storeys, 3 load cases (all spans + two chequerboards), beam B15 + columns C7, C1 |
+| X | Frame on axis 2 | plane frame, 5 storeys; basic load cases G, Q1, Q2 (two chequerboards of the variable load) with loads and M/V/N diagrams; design combinations LC1 = 1.35G + 1.5(Q1+Q2), LC2 = 1.35G + 1.5Q1, LC3 = 1.35G + 1.5Q2 with M/V/N diagrams and the moment envelope; beam B15 + columns C7, C1 |
 | XI | Pad footing under C7 | plan size from R0 (SLS), height from v_Rd,max, bending, punching |
 
 * Geometry comes from the formwork plan (axes 1–7, 5', A–E): the number of one-way
   panels in the hall and in the meeting room is chosen so that l/l ≥ 2.
-* Slab thicknesses, the stair thickness, the depths of beams B5 / B21 and the
-  footing height are **increased automatically** until all checks pass
+* Slab thicknesses, the stair thickness, the depths of beams B5 / B21 / B15 (B15 not
+  shallower than B5) and the footing height are **increased automatically** until all checks pass
   (bending, shear, deflection, punching). To fix a size yourself, set it in the
-  JSON file (`hf_hall`, `B21_h`, …; 0 = automatic).
+  JSON file (`hf_hall`, `B21_h`, `B15_h`, …; 0 = automatic).
 * Codes: EN 1990, EN 1991-1-1, EN 1992-1-1 with the recommended values;
   C25/30, B500, γ_G = 1.35, γ_Q = 1.5.
 

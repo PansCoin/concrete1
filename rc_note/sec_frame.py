@@ -290,9 +290,14 @@ class FrameModel:
         return self.fr.solve(nodal, udl)
 
 
-def section_X(nt, P_):
+def hB15_start(P_):
+    """first trial depth of B15: l/12, not less than the secondary beams B5-B9"""
+    return max(ceil_to(P_.G.Y["C"] / 12, 5), P_.res.get("VIII", {}).get("h", 0))
+
+
+def section_X(nt, P_, hB15=None):
     G, inp, pl = P_.G, P_.inp, P_.plot
-    hB15 = inp.B15_h or ceil_to((G.Y["C"]) / 12, 5)
+    hB15 = hB15 or inp.B15_h or hB15_start(P_)
     viii = P_.res.get("VIII", {})
     hB5 = viii.get("h", 45)
     hf = P_.res.get("II", {}).get("hf", 12)
@@ -387,18 +392,28 @@ def section_X(nt, P_):
     rG = M.case(*g_case())
     rQ = {(j, bay): M.case(*q_case(j, bay)) for j in range(1, nlev) for bay in (0, 1)}
 
-    def combo(fG, fQ, pattern):
-        """design (1.35/1.5) or characteristic (1/1) combination of the basic cases;
-        returns per element (xs, N, V, M)"""
+    def superpose(terms):
+        """linear combination sum(f·result) -> per element (xs, N, V, M)"""
         out = {}
         for ei_ in range(len(fr.elems)):
-            xs, Ng_, Vg_, Mg_ = rG.internal(ei_, 11)
-            Nn, Vv, Mm = fG * Ng_, fG * Vg_, fG * Mg_
-            for key in pattern:
-                _, nq, vq, mq = rQ[key].internal(ei_, 11)
-                Nn, Vv, Mm = Nn + fQ * nq, Vv + fQ * vq, Mm + fQ * mq
+            xs = None
+            Nn = Vv = Mm = 0.0
+            for f_, r_ in terms:
+                xs, nq, vq, mq = r_.internal(ei_, 11)
+                Nn, Vv, Mm = Nn + f_ * nq, Vv + f_ * vq, Mm + f_ * mq
             out[ei_] = (xs, Nn, Vv, Mm)
         return out
+
+    def beam_vals_of(res, j):
+        """B15 on level j: (x from axis A, M, V)"""
+        xs_all, M_all, V_all = [], [], []
+        for e in M.beam_elems[j]:
+            xs, Nn, Vv, Mm = res[e]
+            ys0 = fr.nodes[fr.elems[e].n1][0]
+            xs_all += list(ys0 + xs)
+            M_all += list(Mm)
+            V_all += list(Vv)
+        return np.array(xs_all), np.array(M_all), np.array(V_all)
 
     def react(fG, fQ, pattern, node):
         Rg = np.array(rG.reaction(node)) * fG
@@ -409,47 +424,129 @@ def section_X(nt, P_):
     allQ = set(rQ.keys())
     pat2 = {(j, (j - 1) % 2) for j in range(1, nlev)}
     pat3 = {(j, j % 2) for j in range(1, nlev)}
+    # basic (characteristic) load cases and design combinations
+    BASIC = {"G": [(1.0, rG)], "Q1": [(1.0, rQ[k]) for k in sorted(pat2)], "Q2": [(1.0, rQ[k]) for k in sorted(pat3)]}
+    CH = {k: superpose(v) for k, v in BASIC.items()}
     LCs = {"LC1": allQ, "LC2": pat2, "LC3": pat3}
-    R = {k: combo(1.35, 1.5, v) for k, v in LCs.items()}
-    nt.p("Load cases (design values 1.35·G + 1.5·Q):")
-    nt.bullet("LC1 - variable load on all spans of all floors (maximum normal forces and support moments)")
-    nt.bullet("LC2 - chequerboard: variable load in bay A-C on storeys 1, 3, 5 and in bay C-E on storeys 2, 4")
-    nt.bullet("LC3 - the opposite chequerboard (maximum span moments / column moments)")
-    nt.p("The frame is analysed by the stiffness method (Euler-Bernoulli elements, E_cm, gross "
-         "sections, T-section for the beams).")
-    if not dry(nt):
-        pls = []
-        for j in range(1, nlev):
+    LCF = {"LC1": {"G": 1.35, "Q1": 1.5, "Q2": 1.5}, "LC2": {"G": 1.35, "Q1": 1.5}, "LC3": {"G": 1.35, "Q2": 1.5}}
+    R = {lc: superpose([(f_ * w, r_) for case, f_ in fs.items() for w, r_ in BASIC[case]]) for lc, fs in LCF.items()}
+
+    def lev(j):
+        return f"{j} (+{M.levels[j]:.2f})" + (" - roof" if j == top else "")
+
+    bayname = ("A-C", "C-E")
+    nt.h3("2.5 Basic load cases")
+    nt.p("The variable actions are arranged in the most unfavourable way (EC2 5.1.3): every floor and "
+         "every bay is analysed as a separate unit load case, which are then grouped into the "
+         "characteristic basic load cases below. Superposition holds (linear elastic analysis).")
+    rows = []
+    for j in range(1, nlev):
+        roof = j == top
+        rows.append(("G", lev(j), "both", f"{fmt(G1r.v if roof else G1.v)} / {fmt(G2r.v if roof else G2.v)}",
+                     fmt(gb.v)))
+    for case, pat in (("Q1", pat2), ("Q2", pat3)):
+        for j, bay in sorted(pat):
             roof = j == top
-            for y in M.ys_sec:
-                pls.append((y, M.levels[j], f"{fmt(G1r.v if roof else G1.v)}+{fmt(Q1r.v if roof else Q1.v)}", "#c0392b"))
-            for y in (0.0, M.Ly):
-                pls.append((y, M.levels[j], f"{fmt(G2r.v if roof else G2.v)}+{fmt(Q2r.v if roof else Q2.v)}", "#1f5fa8"))
-        f = pl.frame_loads(fr, M.levels, M.ys, pls, "", "Frame on axis 2 - characteristic point loads G_k+Q_k [kN]",
-                           "X_loads")
-        nt.fig(f, "Static scheme of the frame and characteristic loads from the secondary beams", 13)
-        for lc in ("LC1", "LC2", "LC3"):
-            f = pl.frame(fr, {e: (v[0], v[3]) for e, v in R[lc].items()}, "M",
-                         f"Bending moments M_Ed [kNm] - {lc}", f"X_M_{lc}")
-            nt.fig(f, f"Bending moment diagram - {lc}", 13)
-        f = pl.frame(fr, {e: (v[0], v[2]) for e, v in R["LC1"].items()}, "V", "Shear forces V_Ed [kN] - LC1",
-                     "X_V")
-        nt.fig(f, "Shear force diagram - LC1", 13)
-        f = pl.frame(fr, {e: (v[0], v[1]) for e, v in R["LC1"].items()}, "N", "Normal forces N_Ed [kN] - LC1",
-                     "X_N")
-        nt.fig(f, "Normal force diagram - LC1", 13)
+            rows.append((case, lev(j), bayname[bay], f"{fmt(Q1r.v if roof else Q1.v)} / {fmt(Q2r.v if roof else Q2.v)}",
+                         "-"))
+    nt.table(["Case", "Level", "Loaded bay", "Secondary beams / facade [kN]", "g on B15 [kN/m]"], rows,
+             caption="Basic load cases of the frame (characteristic values)")
+    nt.bullet("Case G - permanent actions on all spans of all levels: reactions G_k,1 of the secondary beams, "
+              "G_k,2 of the facade beams, self-weight of B15 and of the columns.")
+    nt.bullet("Case Q1 - variable actions, chequerboard I: " +
+              ", ".join(f"level {j} bay {bayname[bay]}" for j, bay in sorted(pat2)) + ".")
+    nt.bullet("Case Q2 - variable actions, chequerboard II (the complementary arrangement): " +
+              ", ".join(f"level {j} bay {bayname[bay]}" for j, bay in sorted(pat3)) + ".")
+    nt.p("The secondary beam on axis C (above C7) carries the variable load of both bays; half of it "
+         "is assigned to each bay. Q1 + Q2 = variable actions on all spans.", italic=True)
+    nt.h3("2.6 Design combinations (ULS, EC0 6.10)")
+    nt.table(["Combination", "Expression", "Governs"],
+             [("LC1", "1.35·G + 1.5·(Q1 + Q2)", "support moments of B15, normal forces of the columns, shear"),
+              ("LC2", "1.35·G + 1.5·Q1", "span moments of the loaded bays, column moments (chequerboard I)"),
+              ("LC3", "1.35·G + 1.5·Q2", "span moments of the loaded bays, column moments (chequerboard II)")],
+             caption="Design combinations of the frame")
+    nt.p("The frame is analysed by the stiffness method (Euler-Bernoulli elements, E_cm, gross "
+         "sections, T-section for the beams). The design values are the envelope of LC1-LC3.")
+
+    def mvn(res):
+        return {k: {e: (v[0], v[i]) for e, v in res.items()} for k, i in (("N", 1), ("V", 2), ("M", 3))}
+
+    if not dry(nt):
+        def loads_of(case):
+            """characteristic loads of a basic case: ({(x, z, colour): kN}, {(x0, x1, z): kN/m})"""
+            pts, ud = {}, {}
+
+            def add(key, v):
+                pts[key] = pts.get(key, 0.0) + v
+            for j in range(1, nlev):
+                roof = j == top
+                z = M.levels[j]
+                if case == "G":
+                    for y in M.ys_sec:
+                        add((y, z, "#c0392b"), G1r.v if roof else G1.v)
+                    for y in (0.0, M.Ly):
+                        add((y, z, "#1f5fa8"), G2r.v if roof else G2.v)
+                    ud[(0.0, M.Ly, z)] = gb.v
+                    continue
+                for jj, bay in (pat2 if case == "Q1" else pat3):
+                    if jj != j:
+                        continue
+                    Qs, Qf = (Q1r.v, Q2r.v) if roof else (Q1.v, Q2.v)
+                    for y in M.ys_sec:
+                        inbay = (y < M.yC - 1e-6) if bay == 0 else (y > M.yC + 1e-6)
+                        if inbay:
+                            add((y, z, "#c0392b"), Qs)
+                        elif abs(y - M.yC) < 1e-6:
+                            add((y, z, "#c0392b"), Qs / 2)
+                    add(((0.0 if bay == 0 else M.Ly), z, "#1f5fa8"), Qf)
+            return pts, ud
+
+        def drawn(factors):
+            pts, ud = {}, {}
+            for case, f_ in factors.items():
+                p_, u_ = loads_of(case)
+                for k, v in p_.items():
+                    pts[k] = pts.get(k, 0.0) + f_ * v
+                for k, v in u_.items():
+                    ud[k] = ud.get(k, 0.0) + f_ * v
+            return ([(x, z, fmt(v), c) for (x, z, c), v in pts.items()],
+                    [(x0, x1, z, f"g = {fmt(v)}", "#7f8c8d") for (x0, x1, z), v in ud.items()])
+
+        names = {"G": "Case G - permanent actions", "Q1": "Case Q1 - variable actions, chequerboard I",
+                 "Q2": "Case Q2 - variable actions, chequerboard II"}
+        for case in ("G", "Q1", "Q2"):
+            pls, ud = drawn({case: 1.0})
+            f = pl.frame_case(fr, M.levels, M.ys, pls, ud, mvn(CH[case]),
+                              f"{names[case]} (characteristic values)", f"X_case_{case}",
+                              titles=("Loads [kN, kN/m]", "M_k [kNm]", "V_k [kN]", "N_k [kN]"))
+            nt.fig(f, f"{names[case]}: loads and diagrams M, V, N (characteristic values)", 16)
+        nt.p(f"Column self-weight (case G): C1/C12 {fmt(gc1)} kN/m, C7 {fmt(gc7)} kN/m, applied as point "
+             "loads at the top of every storey (not drawn). Red: secondary beams B5-B9, blue: facade "
+             "beams, grey: self-weight of B15.", italic=True)
+        for lc, expr in (("LC1", "1.35·G + 1.5·(Q1 + Q2)"), ("LC2", "1.35·G + 1.5·Q1"), ("LC3", "1.35·G + 1.5·Q2")):
+            pls, ud = drawn(LCF[lc])
+            f = pl.frame_case(fr, M.levels, M.ys, pls, ud, mvn(R[lc]), f"{lc} = {expr} (design values)", f"X_{lc}",
+                              titles=("Design loads [kN, kN/m]", "M_Ed [kNm]", "V_Ed [kN]", "N_Ed [kN]"))
+            nt.fig(f, f"Design combination {lc} = {expr}: design loads and diagrams M_Ed, V_Ed, N_Ed", 16)
+        env = {}
+        for e in range(len(fr.elems)):
+            xs = R["LC1"][e][0]
+            env[e] = (xs, np.max([R[lc][e][3] for lc in LCs], axis=0), np.min([R[lc][e][3] for lc in LCs], axis=0))
+        f = pl.frame(fr, env, "Menv", "Envelope of the bending moments M_Ed [kNm] - LC1 to LC3 "
+                     "(red max, blue min)", "X_M_env")
+        nt.fig(f, "Envelope of the design bending moments (LC1-LC3)", 13)
+    # characteristic values of B15 per basic case
+    crow0 = []
+    for case in ("G", "Q1", "Q2"):
+        for j in range(1, nlev):
+            Xb, Mb_, Vb_ = beam_vals_of(CH[case], j)
+            crow0.append((case, lev(j), fmt(Mb_[Xb < M.yC - 1e-6].max()), fmt(Mb_[Xb > M.yC + 1e-6].max()),
+                          fmt(Mb_[abs(Xb - M.yC) < 1e-6].min()), fmt(Mb_[0]), fmt(abs(Vb_).max())))
+    nt.table(["Case", "Level", "max M A-C", "max M C-E", "M at C7", "M at C1", "max |V|"], crow0,
+             caption="Frame beam B15 - characteristic values of the basic load cases [kNm, kN]")
     # ------------------------------------------------------- extract values
     def beam_vals(lc, j):
-        xs_all, M_all, V_all = [], [], []
-        y0 = 0
-        for e in M.beam_elems[j]:
-            xs, Nn, Vv, Mm = R[lc][e]
-            n1 = fr.elems[e].n1
-            ys0 = fr.nodes[n1][0]
-            xs_all += list(ys0 + xs)
-            M_all += list(Mm)
-            V_all += list(Vv)
-        return np.array(xs_all), np.array(M_all), np.array(V_all)
+        return beam_vals_of(R[lc], j)
 
     rows = []
     best = dict(span=(0, None), sup=(0, None), end=(0, None), V=(0, None))
@@ -604,7 +701,7 @@ def section_X(nt, P_):
                                  f"over C7 {r2['bars']}, over C1 {r3['bars']}, links {sh['links']}"),
                                 ("Column C7 (1st storey)", f"{fmt(inp.C7_b)}/{fmt(inp.C7_h)} cm, {out['C7'][0]}"),
                                 ("Columns C1/C12 (1st storey)", f"{fmt(inp.C1_b)}/{fmt(inp.C1_h)} cm, {out['C1'][0]}")])
-    return True
+    return bool(r1["ok"] and r2["ok"] and r3["ok"] and sh["ok"])
 
 
 # ============================================================================
