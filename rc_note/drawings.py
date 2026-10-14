@@ -75,6 +75,9 @@ def make(P, out_dir, name, png=False, template=TEMPLATE):
     title = f"{inp.student}  {inp.faculty_no}".strip()
     doc, pitch = dxf_rebar.write(f_form, f_reb, lay, plan, inp, title_extra=title, P=P)
     files = [f_form, f_reb]
+    from . import details
+    elems = details.export(P, out_dir, name, png=png, png_dir=None if png else os.path.join(P.workdir, "elements"))
+    files += [f for _, f, _ in elems]
     if png:
         X, Y = lay.X, lay.Y
         box = (X["1"] - 350, Y["A"] - inp.d - 350, X["7"] + 1300, Y["E"] + 650)
@@ -92,7 +95,8 @@ def make(P, out_dir, name, png=False, template=TEMPLATE):
             dxf_formwork.render_png(doc, p4, box=(box[0], e.extmin.y - 50, box[0] + 2 * pitch,
                                                   Y["A"] - inp.d - 500), width_px=4000)
             files.append(p4)
-    return dict(files=files, plan=plan, layout=lay, report=lay.report + lay.warnings)
+        files += [p for _, _, p in elems if p]
+    return dict(files=files, plan=plan, layout=lay, report=lay.report + lay.warnings, elements=elems)
 
 
 def note_section(nt, P, out):
@@ -100,8 +104,8 @@ def note_section(nt, P, out):
     from .rebar import Schedule, MASS
     plan = out["plan"]
     nt.h1("XII. Drawings and bar schedules")
-    nt.p("The following drawings were produced from the results of the calculations (DXF, scale 1:50, "
-         "drawing unit = 1 cm):")
+    nt.p("The following drawings were produced from the results of the calculations (DXF, drawing unit = 1 cm; "
+         "formwork and slabs 1:50, elements 1:25, stairs 1:10):")
     for f in out["files"]:
         if f.endswith(".dxf"):
             nt.bullet(os.path.basename(f))
@@ -121,9 +125,16 @@ def note_section(nt, P, out):
              caption="Bar schedule of the slabs (BR/DR bottom, TR/AR top)")
     if plan.details:
         nt.h2("Reinforcement drawings of the elements")
-        nt.p("The reinforcement file contains also the detail drawings of the elements designed in the note "
-             "(elevations, cross-sections, bars drawn separately, bar schedules): " +
+        nt.p("Every element designed in the note has its own reinforcement drawing (a separate DXF file with "
+             "elevation, cross-sections, bars drawn separately, bar schedule and title block); the same drawings "
+             "are also placed under the slab plans in the slab reinforcement file: " +
              "; ".join(el.title for el in plan.details) + ".")
+        for el, f, p in out.get("elements", []):
+            if p and os.path.exists(p):
+                from PIL import Image
+                with Image.open(p) as im:
+                    ar = im.height / im.width
+                nt.fig(p, f"{el.title} - reinforcement drawing ({os.path.basename(f)})", min(16.0, 21.0 / ar))
         rows = []
         for el in plan.details:
             for b in el.bars:

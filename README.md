@@ -26,7 +26,8 @@ Output, in the current folder:
 |---|---|
 | `Explanatory_note_<name>.docx` | the explanatory note (sections I–XI, summary, section XII with the bar schedule) |
 | `Formwork_<name>.dxf` | formwork plan of the slab above the first floor, M 1:50 |
-| `Slab_reinforcement_<name>.dxf` | bottom and top reinforcement plans of the slab (M 1:50) and the reinforcement drawings of the elements: beams B21, torsion beam, B5, frame on axis 2, column C10, pad footing (M 1:25), stairs (M 1:10) – with bar schedules |
+| `Slab_reinforcement_<name>.dxf` | bottom and top reinforcement plans of the slab (M 1:50) and, under them, the reinforcement drawings of all elements – with bar schedules |
+| `Reinforcement_<element>_<name>.dxf` | one file per element, with border and title block: `Beam_B21`, `Beam_axis_E_torsion`, `Beam_B5`, `Frame_axis_2`, `Column_C7`, `Column_C1_C12`, `Column_C10`, `Footing_C7` (M 1:25), `Stairs` (M 1:10) |
 
 In Word, right-click the table of contents and choose "Update field".
 Drawing unit in the DXF files = 1 cm.
@@ -74,10 +75,12 @@ they touch each other (the width of a beam between two zones is dimensioned too)
 Next to each plan: bar schedule, mesh schedule and mass of steel; the same schedules are in
 section XII of the note.
 
-**Element details** – `rc_note/details.py`, drawn under the slab plans in the same file, from the
+**Element details** – `rc_note/details.py`, drawn under the slab plans in the same file and written
+again one element per file (`Reinforcement_<element>_<name>.dxf`, border + title block), from the
 results of sections V–XI: beam B21 (VI), beam on axis E with torsion (VII), continuous beam B5 (VIII),
-column C10 over two storeys (IX), frame on axis 2 with B15, C1, C7, C12 (X), pad footing under C7 (XI)
-and the stairs (V). Each drawing has the elevation (plan) with bars, links and link zones, dimension
+column C10 over two storeys (IX), frame on axis 2 with B15, C1, C7, C12 (X), columns C7 and C1/C12 over
+two storeys with their sections (X), pad footing under C7 (XI) and the stairs (V). The drawings of the
+elements are also inserted as figures in section XII of the note. Each drawing has the elevation (plan) with bars, links and link zones, dimension
 lines, cross-sections, the bars drawn separately with the lengths of their parts, position numbers in
 circles and a bar schedule with the mass. Detailing: cover 25 mm (50 mm in the footing), anchorage legs
 12Ø, top bars over supports 0.3·l, links 0.6·s in the critical zones of the columns, laps 50Ø.

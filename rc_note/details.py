@@ -4,14 +4,16 @@ details.py - reinforcement drawings of the elements (ezdxf)
 ==========================================================
 
 Detail drawings drawn from the results of the calculations, placed in the
-reinforcement DXF below the slab plans (model space, 1 unit = 1 cm, true
-size; text sizes for printing at the scale given in the title):
+reinforcement DXF below the slab plans and written one per file by export()
+(model space, 1 unit = 1 cm, true size; text sizes for printing at the scale
+given in the title):
 
   * beam B21 - simply supported T-beam (section VI)            M 1:25
   * beam on axis E (3-4) - bending and torsion (section VII)   M 1:25
   * beam B5 - continuous beam over B15 (section VIII)          M 1:25
   * column C10 - two storeys, sections 0-0 and 1-1 (IX)       M 1:25
   * frame on axis 2 - beam B15, columns C1, C7, C12 (X)        M 1:25
+  * columns C7 and C1/C12 - two storeys, sections (X)          M 1:25
   * pad footing under C7 - plan and section (XI)               M 1:25
   * stairs - flight and landing (V)                            M 1:10
 
@@ -23,6 +25,7 @@ schedule. Positions are numbered per element.
 from __future__ import annotations
 
 import math
+import os
 from dataclasses import dataclass, field
 
 from ezdxf.enums import TextEntityAlignment
@@ -806,12 +809,27 @@ def column_section(sh, x0, y0, W, D_, n, phi, phi_w, bar, link, tie=None, title=
 def column_C10(P):
     inp, R = P.inp, P.res["IX"]
     D = R["design"]
-    bc, hc = inp.C10_b, inp.C10_h
     (_, _, p0, n0), (_, _, p1, n1) = D["sec"][0], D["sec"][1]
     el = Element("C10", "Column C10 - first and second storey", 25)
     hB = P.res.get("VI", {}).get("h", 60)
+    return el, _column(el, P, inp.C10_b, inp.C10_h, p0, n0, p1, n1, D["s_link"] / 10, hB)
+
+
+def column_frame(P, tag):
+    """Columns of the frame on axis 2 (C7, C1/C12): first storey as designed in
+    section X, the same bars continued in the second storey."""
+    inp, R = P.inp, P.res["X"]
+    txt, As, phi, n = R["design"]["cols"][tag]
+    bc, hc = (inp.C7_b, inp.C7_h) if tag == "C7" else (inp.C1_b, inp.C1_h)
+    name = "Column C7 (axis 2 / C)" if tag == "C7" else "Columns C1, C12 (axis 2 / A, E)"
+    el = Element(tag, f"{name} - frame on axis 2, first and second storey", 25)
+    s_link = min(20 * phi / 10, bc, 40.0)
+    return el, _column(el, P, bc, hc, phi, n, phi, n, s_link, R["hB15"])
+
+
+def _column(el, P, bc, hc, p0, n0, p1, n1, s, hB):
+    inp = P.inp
     phiw = 10 if max(p0, p1) >= 25 else 8
-    s = D["s_link"] / 10
     s_cr = math.floor(0.6 * s)
     base = -50.0
     lv1, lv2 = inp.hb, inp.hb + inp.hs
@@ -822,8 +840,8 @@ def column_C10(P):
     lk = el.bar(phiw, link_segs(hc - 2 * C, bc - 2 * C, phiw), "links", "link")
     tie = el.bar(phiw, [bc - 2 * C, max(10 * phiw / 10, 7.0), max(10 * phiw / 10, 7.0)], "cross ties", "tie") \
         if max(n0, n1) // 2 > 2 else None
-    return el, dict(bc=bc, hc=hc, b1=b1, b2=b2, n0=n0, n1=n1, p0=p0, p1=p1, lk=lk, tie=tie, s=s, s_cr=s_cr,
-                    base=base, lv1=lv1, lv2=lv2, hB=hB, lap1=lap1, lap2=lap2, phiw=phiw)
+    return dict(bc=bc, hc=hc, b1=b1, b2=b2, n0=n0, n1=n1, p0=p0, p1=p1, lk=lk, tie=tie, s=s, s_cr=s_cr,
+                base=base, lv1=lv1, lv2=lv2, hB=hB, lap1=lap1, lap2=lap2, phiw=phiw)
 
 
 def draw_column_C10(sh, el, d):
@@ -1294,6 +1312,11 @@ def build(P):
     if "X" in res and "design" in res["X"]:
         el, sp, fd = frame_axis2(P)
         out.append((el, lambda sh, el=el, sp=sp, fd=fd: draw_frame(sh, el, sp, fd)))
+    if "X" in res and "design" in res["X"]:
+        for tag in ("C7", "C1"):
+            if tag in res["X"]["design"].get("cols", {}):
+                el, d = column_frame(P, tag)
+                out.append((el, lambda sh, el=el, d=d: draw_column_C10(sh, el, d)))
     if "IX" in res and "design" in res["IX"]:
         el, d = column_C10(P)
         out.append((el, lambda sh, el=el, d=d: draw_column_C10(sh, el, d)))
@@ -1345,3 +1368,73 @@ def place(msp, P, x0, y_top, max_width):
         sh.text(f"{el.title.upper()}   M 1:{el.scale}", (sh.box[0] + 0.5 * (sh.box[2] - sh.box[0]),
                                                         sh.box[3] + 3 * sh.h), 2.0 * sh.h)
     return [el for el, _ in items], y_low
+
+
+# ============================================================================
+# one DXF file per element
+# ============================================================================
+FILE_NAMES = {"B21": "Beam_B21", "BT": "Beam_axis_E_torsion", "B5": "Beam_B5", "FR": "Frame_axis_2",
+              "C7": "Column_C7", "C1": "Column_C1_C12", "C10": "Column_C10", "F": "Footing_C7",
+              "ST": "Stairs"}
+
+
+def title_block(sh, el, inp, x1, y0):
+    """Title block (right bottom corner of the sheet, x1 = right edge, y0 = bottom edge)."""
+    h = sh.h
+    rows = [("Project", "RC course project - reinforcement drawing"),
+            ("Element", el.title),
+            ("Student", f"{inp.student}  {inp.faculty_no}  {inp.date}".strip()),
+            ("Materials", f"C{int(inp.fck)}/{int(inp.fck + 5)}, B{int(inp.fyk)}, c_nom = 25 mm"),
+            ("Scale", f"1:{el.scale}  (drawing unit = 1 cm)"),
+            ("Steel", f"{fmt(el.mass)} kg")]
+    w1 = 11 * h
+    w2 = max(max(0.72 * (1.1 if k == 1 else 0.9) * h * len(v) for k, (_, v) in enumerate(rows)) + 3 * h, 45 * h)
+    rh = 2.2 * h
+    x0 = x1 - w1 - w2
+    y = y0 + rh * len(rows)
+    sh.rect(x0, y0, x1, y, "D-TEXT")
+    sh.line((x0 + w1, y0), (x0 + w1, y), "D-TEXT")
+    for k, (a, v) in enumerate(rows):
+        yy = y - k * rh
+        if k:
+            sh.line((x0, yy), (x1, yy), "D-TEXT")
+        sh.text(a, (x0 + 0.8 * h, yy - rh / 2), 0.9 * h, align=ML)
+        sh.text(v, (x0 + w1 + 0.8 * h, yy - rh / 2), (1.1 if k == 1 else 0.9) * h, align=ML)
+    return w1 + w2, rh * len(rows)
+
+
+def export(P, out_dir, name, png=False, png_dir=None):
+    """Write every element drawing into its own DXF file (with border and title block).
+    Returns a list of (element, dxf path, png path or None)."""
+    import ezdxf
+    if png_dir:
+        os.makedirs(png_dir, exist_ok=True)
+    out = []
+    for el, fn in build(P):
+        doc = ezdxf.new("R2010")
+        doc.units = ezdxf.units.CM
+        setup(doc)
+        msp = doc.modelspace()
+        sh = Sheet(msp, 0, 0, el.scale)
+        fn(sh)
+        bx0, by0, bx1, by1 = sh.box
+        sh.text(f"{el.title.upper()}   M 1:{el.scale}", ((bx0 + bx1) / 2, by1 + 3 * sh.h), 2.0 * sh.h)
+        m = 6 * sh.h
+        tw, th = title_block(Sheet(None, 0, 0, el.scale), el, P.inp, 0, 0)
+        X0, Y0, X1, Y1 = sh.box[0] - m, sh.box[1] - m - th - m, sh.box[2] + m, sh.box[3] + m
+        X1 = max(X1, X0 + tw + 2 * m)
+        title_block(sh, el, P.inp, X1 - m / 2, Y0 + m / 2)
+        sh.rect(X0, Y0, X1, Y1, "D-TEXT")
+        sh.rect(X0 - m / 2, Y0 - m / 2, X1 + m / 2, Y1 + m / 2, "D-TEXT")
+        doc.header["$EXTMIN"] = (X0 - m, Y0 - m, 0)
+        doc.header["$EXTMAX"] = (X1 + m, Y1 + m, 0)
+        f = os.path.join(out_dir, f"Reinforcement_{FILE_NAMES.get(el.key, el.key)}_{name}.dxf")
+        doc.saveas(f)
+        p = None
+        if png or png_dir:
+            from .dxf_formwork import render_png
+            p = os.path.join(png_dir or out_dir, os.path.basename(f)[:-4] + ".png")
+            W = X1 - X0 + 2 * m
+            render_png(doc, p, box=(X0 - m, Y0 - m, X1 + m, Y1 + m), width_px=int(min(3600, max(1800, W * 4))))
+        out.append((el, f, p))
+    return out

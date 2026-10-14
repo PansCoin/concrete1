@@ -1146,5 +1146,6 @@ def render_png(doc, path, box=None, width_px=3000):
     ax.set_xlim(x0, x1)
     ax.set_ylim(y0, y1)
     ax.set_aspect("auto")
+    fig.set_size_inches(w, w * (y1 - y0) / (x1 - x0))   # the drawing frontend resets the size
     fig.savefig(path, dpi=100, facecolor="white")
     plt.close(fig)
