@@ -27,7 +27,7 @@ Output, in the current folder:
 | `Explanatory_note_<name>.docx` | the explanatory note (sections I–XI, summary, section XII with the bar schedule) |
 | `Formwork_<name>.dxf` | formwork plan of the slab above the first floor, M 1:50 |
 | `Slab_reinforcement_<name>.dxf` | bottom and top reinforcement plans of the slab (M 1:50) and, under them, the reinforcement drawings of all elements – with bar schedules |
-| `Reinforcement_<element>_<name>.dxf` | one file per element, with border and title block: `Beam_B21`, `Beam_axis_E_torsion`, `Beam_B5`, `Frame_axis_2`, `Column_C7`, `Column_C1_C12`, `Column_C10`, `Footing_C7` (M 1:25), `Stairs` (M 1:10) |
+| `Reinforcement_<element>_<name>.dxf` | one file per element, with border and title block: `Beam_B21`, `Beam_axis_E_torsion`, `Beam_B5`, `Frame_axis_2`, `Column_C7`, `Column_C10`, `Footing_C7` (M 1:25), `Stairs` (M 1:10) |
 
 In Word, right-click the table of contents and choose "Update field".
 Drawing unit in the DXF files = 1 cm.
@@ -78,8 +78,8 @@ section XII of the note.
 **Element details** – `rc_note/details.py`, drawn under the slab plans in the same file and written
 again one element per file (`Reinforcement_<element>_<name>.dxf`, border + title block), from the
 results of sections V–XI: beam B21 (VI), beam on axis E with torsion (VII), continuous beam B5 (VIII),
-column C10 over two storeys (IX), frame on axis 2 with B15, C1, C7, C12 (X), columns C7 and C1/C12 over
-two storeys with their sections (X), pad footing under C7 (XI) and the stairs (V). The drawings of the
+column C10 over two storeys (IX), frame on axis 2 with B15 and C7 (C1, C12 as outline) (X), column C7 over
+two storeys with its sections (X), pad footing under C7 (XI) and the stairs (V). The drawings of the
 elements are also inserted as figures in section XII of the note. Each drawing has the elevation (plan) with bars, links and link zones, dimension
 lines, cross-sections, the bars drawn separately with the lengths of their parts, position numbers in
 circles and a bar schedule with the mass. Detailing: cover 25 mm (50 mm in the footing), anchorage legs
@@ -117,7 +117,7 @@ Limits of the template:
 | VII | Beam on axis E (3–4) | bending + torsion (EC2 6.3) |
 | VIII | Beam B5–B9 | 2-span continuous T-beam, envelopes, hanger reinforcement |
 | IX | Column C10 | normal forces floor by floor, α_n reduction, 2nd-order effects, N–M interaction |
-| X | Frame on axis 2 | plane frame, 5 storeys; basic load cases G, Q1, Q2 (two chequerboards of the variable load) with loads and M/V/N diagrams; design combinations LC1 = 1.35G + 1.5(Q1+Q2), LC2 = 1.35G + 1.5Q1, LC3 = 1.35G + 1.5Q2 with M/V/N diagrams and the moment envelope; beam B15 + columns C7, C1 |
+| X | Frame on axis 2 | plane frame, 5 storeys; basic load cases G, Q1, Q2 (two chequerboards of the variable load) with loads and M/V/N diagrams; design combinations LC1 = 1.35G + 1.5(Q1+Q2), LC2 = 1.35G + 1.5Q1, LC3 = 1.35G + 1.5Q2 with M/V/N diagrams and the moment envelope; beam B15 + column C7 (only C7 of the frame is designed) |
 | XI | Pad footing under C7 | plan size from R0 (SLS), height from v_Rd,max, bending, punching |
 
 * Geometry comes from the formwork plan (axes 1–7, 5', A–E): the number of one-way

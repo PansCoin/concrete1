@@ -13,7 +13,7 @@ given in the title):
   * beam B5 - continuous beam over B15 (section VIII)          M 1:25
   * column C10 - two storeys, sections 0-0 and 1-1 (IX)       M 1:25
   * frame on axis 2 - beam B15, columns C1, C7, C12 (X)        M 1:25
-  * columns C7 and C1/C12 - two storeys, sections (X)          M 1:25
+  * column C7 of the frame - two storeys, sections (X)          M 1:25
   * pad footing under C7 - plan and section (XI)               M 1:25
   * stairs - flight and landing (V)                            M 1:10
 
@@ -816,8 +816,8 @@ def column_C10(P):
 
 
 def column_frame(P, tag):
-    """Columns of the frame on axis 2 (C7, C1/C12): first storey as designed in
-    section X, the same bars continued in the second storey."""
+    """Column C7 of the frame on axis 2: first storey as designed in section X,
+    the same bars continued in the second storey."""
     inp, R = P.inp, P.res["X"]
     txt, As, phi, n = R["design"]["cols"][tag]
     bc, hc = (inp.C7_b, inp.C7_h) if tag == "C7" else (inp.C1_b, inp.C1_h)
@@ -938,7 +938,7 @@ def frame_axis2(P):
     hf = P.res.get("II", {}).get("hf", 12)
     yC = G.Y["C"]
     tA, tC = inp.C1_h, inp.C7_h
-    el = Element("FR", "Frame on axis 2 - beam B15, columns C1, C7, C12 (first storey)", 25)
+    el = Element("FR", "Frame on axis 2 - beam B15 and column C7 (first storey)", 25)
     phiw = shr["phi_w"]
     xA, xC, xE = tA / 2, tA / 2 + yC, tA / 2 + 2 * yC
     L = xE + tA / 2
@@ -986,9 +986,9 @@ def frame_axis2(P):
         cols[tag] = dict(bar=cb, link=ck, phi=phi, n=n, phiw=cw, b=bcol, h=hcol, lap=lapc,
                          s=min(20 * phi / 10, bcol, 40.0))
     sp = BeamSpec(el, bw, hB, hf,
-                  supports=[dict(x=xA, t=tA, kind="col", label="C1 (axis A)", below=below + Hf),
+                  supports=[dict(x=xA, t=tA, kind="col", label="C1 (axis A)", below=below),
                             dict(x=xC, t=tC, kind="col", label="C7 (axis C)", below=below + Hf),
-                            dict(x=xE, t=tA, kind="col", label="C12 (axis E)", below=below + Hf)],
+                            dict(x=xE, t=tA, kind="col", label="C12 (axis E)", below=below)],
                   runs=runs, zones=zones, link=lk, phi_w=phiw, hangers=hang, below=below + Hf,
                   sections=[("1-1", tA + lcl / 2, [(b1, r1["n"])], [(b4, 2)], None),
                             ("2-2", xC - tC / 2 - 25, [(b1, r1["n"])], [(b2, r2["n"]), (b4, 2)], None)])
@@ -1007,7 +1007,11 @@ def draw_frame(sh, el, sp, fd):
     below, Hf, Lf = fd["below"], fd["Hf"], fd["Lf"]
     y_ft = -below                                  # top of the footings
     for tag, x in fd["xs"].items():
-        c = fd["cols"]["C7" if tag == "C7" else "C1"]
+        c = fd["cols"].get(tag)
+        if c is None:                              # C1, C12: not designed - outline only
+            sh.line((x - 60, y_ft), (x + 60, y_ft))
+            sh.text(f"{tag} - outline only (not designed)", (x, y_ft - 2.0 * sh.h), 0.8 * sh.h)
+            continue
         # footing outline (size of the footing under C7)
         sh.rect(x - Lf / 2, y_ft - Hf, x + Lf / 2, y_ft)
         sh.rect(x - Lf / 2 - 10, y_ft - Hf - 10, x + Lf / 2 + 10, y_ft - Hf, "D-HIDDEN")
@@ -1049,8 +1053,8 @@ def draw_frame(sh, el, sp, fd):
     sh.vchain([y_ft - Hf, y_ft, 0, sp.h], xr, xr + 8 * sh.h)
     # vertical bars of the columns drawn separately, with the lengths of their parts
     xv = xr + 20 * sh.h
-    for tag, who in (("C7", "C7"), ("C1", "C1, C12")):
-        c = fd["cols"][tag]
+    for tag, c in fd["cols"].items():
+        who = tag
         b = c["bar"]
         yb = y_ft - Hf + C_FOOT + 3
         ytop = sp.h + c["lap"]
@@ -1061,10 +1065,9 @@ def draw_frame(sh, el, sp, fd):
         xv += 30 * sh.h
     # column sections
     xs = sh.box[2] + 6 * sh.h
-    for tag in ("C7", "C1"):
-        c = fd["cols"][tag]
+    for tag, c in fd["cols"].items():
         column_section(sh, xs, -c["b"] - 20, c["h"], c["b"], c["n"], c["phi"], c["phiw"], c["bar"], c["link"],
-                       None, f"Column {tag}" + (" (C12)" if tag == "C1" else ""))
+                       None, f"Column {tag}")
         xs += c["h"] + 16 * sh.h
     # bars of the beam drawn separately (also the mirrored ones)
     y = bar_list(sh, sp.runs, min(y_low, y_ft - Hf - 14 * sh.h))
@@ -1072,7 +1075,7 @@ def draw_frame(sh, el, sp, fd):
     x = 0.0
     yb = y - 2 * sh.h
     hmax = 0.0
-    for c in (fd["cols"]["C7"], fd["cols"]["C1"]):
+    for c in fd["cols"].values():
         draw_link(sh, el, c["link"], x, yb - c["link"].segs[1], c["link"].segs[0], c["link"].segs[1])
         x += c["link"].segs[0] + 40 * sh.h
         hmax = max(hmax, c["link"].segs[1])
@@ -1313,7 +1316,7 @@ def build(P):
         el, sp, fd = frame_axis2(P)
         out.append((el, lambda sh, el=el, sp=sp, fd=fd: draw_frame(sh, el, sp, fd)))
     if "X" in res and "design" in res["X"]:
-        for tag in ("C7", "C1"):
+        for tag in ("C7",):
             if tag in res["X"]["design"].get("cols", {}):
                 el, d = column_frame(P, tag)
                 out.append((el, lambda sh, el=el, d=d: draw_column_C10(sh, el, d)))
@@ -1374,7 +1377,7 @@ def place(msp, P, x0, y_top, max_width):
 # one DXF file per element
 # ============================================================================
 FILE_NAMES = {"B21": "Beam_B21", "BT": "Beam_axis_E_torsion", "B5": "Beam_B5", "FR": "Frame_axis_2",
-              "C7": "Column_C7", "C1": "Column_C1_C12", "C10": "Column_C10", "F": "Footing_C7",
+              "C7": "Column_C7", "C10": "Column_C10", "F": "Footing_C7",
               "ST": "Stairs"}
 
 

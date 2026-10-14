@@ -587,12 +587,12 @@ def section_X(nt, P_, hB15=None):
 
     crow = []
     for lc in LCs:
-        for tag in ("C1", "C7"):
+        for tag in ("C7",):
             for j in (1, 2):
                 Nc, Mb, Mt = col_vals(lc, tag, j)
                 crow.append((lc, tag, f"{j}", fmt(Nc), fmt(Mb), fmt(Mt)))
     nt.table(["LC", "Column", "Storey", "N_Ed [kN]", "M_bottom [kNm]", "M_top [kNm]"], crow,
-             caption="Columns - design forces")
+             caption="Column C7 - design forces")
     # ------------------------------------------------------------ design beam
     nt.h2("3. Design of the frame beam B15")
     mat = materials(nt, inp.fck, inp.fyk)
@@ -623,16 +623,18 @@ def section_X(nt, P_, hB15=None):
     nt.p(f"→ {nhang} additional two-leg links Φ10 at each secondary beam "
          "(or bent-up bars 2Φ16 at 45°).", bold=True)
     # ------------------------------------------------------------ design column C7
-    nt.h2("4. Design of the columns")
+    nt.h2("4. Design of the column C7")
+    nt.p("Of the frame columns only the middle column C7 is designed; the columns C1 and C12 are part of "
+         "the static model of the frame (stiffness, restraint of B15) only.", italic=True)
     best_c = {}
-    for tag in ("C7", "C1"):
+    for tag in ("C7",):
         cands = []
         for lc in LCs:
             Nc, Mb, Mt = col_vals(lc, tag, 1)
             cands.append((lc, Nc, Mb, Mt))
         best_c[tag] = cands
     out = {}
-    for tag, (bcm, hcm) in (("C7", (inp.C7_b, inp.C7_h)), ("C1", (inp.C1_b, inp.C1_h))):
+    for tag, (bcm, hcm) in (("C7", (inp.C7_b, inp.C7_h)),):
         nt.h3(f"Column {tag} - first storey ({fmt(bcm)}/{fmt(hcm)} cm)")
         l = inp.hb / 100
         Ic = bcm * hcm**3 / 12
@@ -699,8 +701,7 @@ def section_X(nt, P_, hB15=None):
                                              Mmin=list(map(float, env_min)), V=Vmax, cot=2.5)),
                        summary=[("Frame beam B15", f"{fmt(inp.B15_b)}/{fmt(hB15)} cm: span {r1['bars']}, "
                                  f"over C7 {r2['bars']}, over C1 {r3['bars']}, links {sh['links']}"),
-                                ("Column C7 (1st storey)", f"{fmt(inp.C7_b)}/{fmt(inp.C7_h)} cm, {out['C7'][0]}"),
-                                ("Columns C1/C12 (1st storey)", f"{fmt(inp.C1_b)}/{fmt(inp.C1_h)} cm, {out['C1'][0]}")])
+                                ("Column C7 (1st storey)", f"{fmt(inp.C7_b)}/{fmt(inp.C7_h)} cm, {out['C7'][0]}")])
     return bool(r1["ok"] and r2["ok"] and r3["ok"] and sh["ok"])
 
 
