@@ -391,14 +391,29 @@ class Plotter:
         ax.set_title(title, fontsize=9)
         return self._save(fig, name)
 
-    def column_section(self, b, h, n_bars, phi, title, name="col"):
-        fig, ax = plt.subplots(figsize=(3.4, 3.8))
+    def column_section(self, b, h, n_bars, phi, title, name="col", layout=None):
+        """layout=(n_long, n_mid): n_long bars along each horizontal side (corners included),
+        n_mid extra bars on each vertical side, with cross ties (frame column)."""
+        fig, ax = plt.subplots(figsize=(3.4, 3.8) if layout is None else (4.6, 3.2))
         ax.add_patch(Rectangle((-b / 2, -h / 2), b, h, fc="#e8e8e8", ec="k"))
         c = 45
         ax.add_patch(Rectangle((-b / 2 + 30, -h / 2 + 30), b - 60, h - 60, fc="none", ec=GREY))
+        if layout is not None:
+            nl, nm = layout
+            xs = [-b / 2 + c + (b - 2 * c) * i / (nl - 1) for i in range(nl)]
+            ys = [-h / 2 + c + (h - 2 * c) * i / (nm + 1) for i in range(1, nm + 1)]
+            pts = [(x, y) for x in xs for y in (-h / 2 + c, h / 2 - c)] + \
+                  [(x, y) for x in (-b / 2 + c, b / 2 - c) for y in ys]
+            for x in xs[1:-1]:
+                ax.plot([x, x], [-h / 2 + 30, h / 2 - 30], color=GREY, lw=0.8)
+            for y in ys:
+                ax.plot([-b / 2 + 30, b / 2 - 30], [y, y], color=GREY, lw=0.8)
+            for (x, y) in pts:
+                ax.add_patch(Circle((x, y), phi / 2, fc="k"))
+            n_bars = 0
         # distribute bars around perimeter (corners first)
         pts = [(-b / 2 + c, -h / 2 + c), (b / 2 - c, -h / 2 + c), (b / 2 - c, h / 2 - c),
-               (-b / 2 + c, h / 2 - c)]
+               (-b / 2 + c, h / 2 - c)] if n_bars else []
         rest = n_bars - 4
         side = []
         if rest > 0:

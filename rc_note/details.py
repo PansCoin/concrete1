@@ -780,9 +780,14 @@ def beam_B5(P):
 # ============================================================================
 # columns
 # ============================================================================
-def column_section(sh, x0, y0, W, D_, n, phi, phi_w, bar, link, tie=None, title=None, dims=True):
+def column_section(sh, x0, y0, W, D_, n, phi, phi_w, bar, link, tie=None, title=None, dims=True,
+                   layout=None, tie2=None):
     """Column section W (horizontal) x D_ (vertical); n/2 bars on the left and
-    right faces (the faces perpendicular to the bending)."""
+    right faces (the faces perpendicular to the bending). layout=(n_long, n_mid): frame
+    column - n_long bars along the top and bottom faces (W), n_mid extra bars on the left and
+    right faces, cross ties at the interior bars (tie across D_, tie2 across W)."""
+    if layout is not None:
+        return _column_section_frame(sh, x0, y0, W, D_, n, phi, phi_w, bar, link, tie, tie2, title, dims, layout)
     sh.rect(x0, y0, x0 + W, y0 + D_)
     sh.rect(x0 + C, y0 + C, x0 + W - C, y0 + D_ - C, "D-LINKS")
     k = max(n // 2, 1)
@@ -806,6 +811,39 @@ def column_section(sh, x0, y0, W, D_, n, phi, phi_w, bar, link, tie=None, title=
         sh.dim((x0 + W, y0), (x0 + W, y0 + D_), (x0 + W + 1.6 * sh.h, y0), vertical=True)
 
 
+def _column_section_frame(sh, x0, y0, W, D_, n, phi, phi_w, bar, link, tie, tie2, title, dims, layout):
+    nl, nm = layout
+    sh.rect(x0, y0, x0 + W, y0 + D_)
+    sh.rect(x0 + C, y0 + C, x0 + W - C, y0 + D_ - C, "D-LINKS")
+    off = C + phi_w / 10 + phi / 20
+    xs = [x0 + off + i * (W - 2 * off) / (nl - 1) for i in range(nl)]
+    ys = [y0 + off + i * (D_ - 2 * off) / (nm + 1) for i in range(1, nm + 1)]
+    for xx in xs:
+        for yy in (y0 + off, y0 + D_ - off):
+            sh.dot((xx, yy), phi)
+    for xx in (x0 + off, x0 + W - off):
+        for yy in ys:
+            sh.dot((xx, yy), phi)
+    if tie is not None:
+        for xx in xs[1:-1]:
+            sh.line((xx, y0 + C), (xx, y0 + D_ - C), "D-LINKS")
+        if len(xs) > 2:
+            sh.bubble(tie.pos, (xs[1] + 1.5 * sh.h, y0 - 2.2 * sh.h), (xs[1], y0 + C + 2))
+    if tie2 is not None:
+        for yy in ys:
+            sh.line((x0 + C, yy), (x0 + W - C, yy), "D-LINKS")
+        if ys:
+            sh.bubble(tie2.pos, (x0 - 2.4 * sh.h, ys[0] - 1.6 * sh.h), (x0 + C, ys[0]))
+    if title:
+        sh.text(title, (x0 + W / 2, y0 + D_ + 2.2 * sh.h), 1.1 * sh.h)
+    sh.bubble(bar.pos, (x0 + W + 2.4 * sh.h, y0 + D_ + 1.0 * sh.h), (xs[-1], y0 + D_ - off))
+    sh.text(f"{n}Ø{phi}", (x0 + W + 3.8 * sh.h, y0 + D_ + 1.0 * sh.h), 0.9 * sh.h, align=ML)
+    sh.bubble(link.pos, (x0 - 2.4 * sh.h, y0 + D_ - 0.3 * D_), (x0 + C, y0 + D_ - 0.3 * D_))
+    if dims:
+        sh.dim((x0, y0), (x0 + W, y0), (x0, y0 - 5.6 * sh.h))
+        sh.dim((x0 + W, y0), (x0 + W, y0 + D_), (x0 + W + 1.6 * sh.h, y0), vertical=True)
+
+
 def column_C10(P):
     inp, R = P.inp, P.res["IX"]
     D = R["design"]
@@ -819,29 +857,44 @@ def column_frame(P, tag):
     """Column C7 of the frame on axis 2: first storey as designed in section X,
     the same bars continued in the second storey."""
     inp, R = P.inp, P.res["X"]
-    txt, As, phi, n = R["design"]["cols"][tag]
     bc, hc = (inp.C7_b, inp.C7_h) if tag == "C7" else (inp.C1_b, inp.C1_h)
     name = "Column C7 (axis 2 / C)" if tag == "C7" else "Columns C1, C12 (axis 2 / A, E)"
     el = Element(tag, f"{name} - frame on axis 2, first and second storey", 25)
-    s_link = min(20 * phi / 10, bc, 40.0)
-    return el, _column(el, P, bc, hc, phi, n, phi, n, s_link, R["hB15"])
+    c7 = R["design"].get("c7")
+    if c7 is None:
+        txt, As, phi, n = R["design"]["cols"][tag]
+        return el, _column(el, P, bc, hc, phi, n, phi, n, min(20 * phi / 10, bc, 40.0), R["hB15"])
+    L1, L2 = c7["lay"][1], c7["lay"][2]
+    return el, _column(el, P, bc, hc, L1["phi"], L1["n"], L2["phi"], L2["n"], c7["s"], R["hB15"],
+                       lays=((L1["n_long"], L1["n_mid"]), (L2["n_long"], L2["n_mid"])), s_c=c7["s_c"],
+                       phiw=c7["phiw"], names=("4-4", "6-6"))
 
 
-def _column(el, P, bc, hc, p0, n0, p1, n1, s, hB):
+def _column(el, P, bc, hc, p0, n0, p1, n1, s, hB, lays=None, s_c=None, phiw=None, names=("0-0", "1-1")):
     inp = P.inp
-    phiw = 10 if max(p0, p1) >= 25 else 8
-    s_cr = math.floor(0.6 * s)
+    phiw = phiw or (10 if max(p0, p1) >= 25 else 8)
+    s_cr = s_c or math.floor(0.6 * s)
     base = -50.0
     lv1, lv2 = inp.hb, inp.hb + inp.hs
     lap1 = ceil5(50 * p1 / 10)
     lap2 = ceil5(50 * p1 / 10)
-    b1 = el.bar(p0, [lv1 + lap1 - base], "storey 1 (section 0-0)")
-    b2 = el.bar(p1, [lv2 + lap2 - lv1], "storey 2 (section 1-1)")
+    b1 = el.bar(p0, [lv1 + lap1 - base], f"storey 1 (section {names[0]})")
+    b2 = el.bar(p1, [lv2 + lap2 - lv1], f"storey 2 (section {names[1]})")
     lk = el.bar(phiw, link_segs(hc - 2 * C, bc - 2 * C, phiw), "links", "link")
-    tie = el.bar(phiw, [bc - 2 * C, max(10 * phiw / 10, 7.0), max(10 * phiw / 10, 7.0)], "cross ties", "tie") \
-        if max(n0, n1) // 2 > 2 else None
-    return dict(bc=bc, hc=hc, b1=b1, b2=b2, n0=n0, n1=n1, p0=p0, p1=p1, lk=lk, tie=tie, s=s, s_cr=s_cr,
-                base=base, lv1=lv1, lv2=lv2, hB=hB, lap1=lap1, lap2=lap2, phiw=phiw)
+    hook = max(10 * phiw / 10, 7.0)
+    tie2 = None
+    if lays is None:
+        tie = el.bar(phiw, [bc - 2 * C, hook, hook], "cross ties", "tie") if max(n0, n1) // 2 > 2 else None
+        nties = (1, 1)
+        nties2 = (0, 0)
+    else:
+        nties = tuple(max(L[0] - 2, 0) for L in lays)       # across b, at the interior bars of the long sides
+        nties2 = tuple(L[1] for L in lays)                   # across h, at the extra bars of the short sides
+        tie = el.bar(phiw, [bc - 2 * C, hook, hook], "cross ties (across b)", "tie") if max(nties) else None
+        tie2 = el.bar(phiw, [hc - 2 * C, hook, hook], "cross ties (across h)", "tie") if max(nties2) else None
+    return dict(bc=bc, hc=hc, b1=b1, b2=b2, n0=n0, n1=n1, p0=p0, p1=p1, lk=lk, tie=tie, tie2=tie2, s=s, s_cr=s_cr,
+                base=base, lv1=lv1, lv2=lv2, hB=hB, lap1=lap1, lap2=lap2, phiw=phiw, lays=lays, names=names,
+                nties=nties, nties2=nties2)
 
 
 def draw_column_C10(sh, el, d):
@@ -861,11 +914,12 @@ def draw_column_C10(sh, el, d):
     sh.text("top of the footing", (x1 + 102, base + 0.8 * sh.h), 0.8 * sh.h, align=ML)
     # bars: storey 1 and 2 (offset inside to show the laps)
     off = C + d["phiw"] / 10 + d["p0"] / 20
-    k0 = max(d["n0"] // 2, 1)
+    lays = d.get("lays")
+    k0 = lays[0][0] if lays else max(d["n0"] // 2, 1)
     xs0 = [x0 + off + i * (hc - 2 * off) / max(k0 - 1, 1) for i in range(k0)]
     for xx in xs0:
         sh.line((xx, base), (xx, lv1 + d["lap1"]), "D-BARS")
-    k1 = max(d["n1"] // 2, 1)
+    k1 = lays[1][0] if lays else max(d["n1"] // 2, 1)
     off1 = off + 2.5
     xs1 = [x0 + off1 + i * (hc - 2 * off1) / max(k1 - 1, 1) for i in range(k1)]
     for xx in xs1:
@@ -881,11 +935,17 @@ def draw_column_C10(sh, el, d):
              (lv1, lv1 + max(lcr, d["lap1"]), s_cr), (lv1 + max(lcr, d["lap1"]), lv2 - hB - lcr, s),
              (lv2 - hB - lcr, lv2, s_cr), (lv2, top, s_cr)]
     tot = 0
-    for ya, yb, ss in zones:
+    nties, nties2 = d.get("nties", (1, 1)), d.get("nties2", (0, 0))
+    for iz, (ya, yb, ss) in enumerate(zones):
         if yb - ya < 5:
             continue
         n = link_count(ya, yb, ss)
         tot += n
+        st = 0 if iz < 3 else 1
+        if d["tie"] is not None:
+            d["tie"].n += n * nties[st]
+        if d.get("tie2") is not None:
+            d["tie2"].n += n * nties2[st]
         step = (yb - ya - 10) / max(n - 1, 1)
         for i in range(n):
             y = ya + 5 + i * step
@@ -893,8 +953,6 @@ def draw_column_C10(sh, el, d):
         sh.dim((x0 - 100, ya), (x0 - 100, yb), (x0 - 100 - 2.0 * sh.h, ya), vertical=True,
                text=f"{n}Ø{d['phiw']}/{fmt(ss)}")
     d["lk"].n += tot
-    if d["tie"] is not None:
-        d["tie"].n += tot
     sh.bubble(d["lk"].pos, (x0 - 2.5 * sh.h, lv1 - hB - lcr / 2), (x0 + C, lv1 - hB - lcr / 2))
     # levels and dimensions
     for lv, name in ((lv1, f"+{lv1 / 100:.2f}"), (lv2, f"+{lv2 / 100:.2f}")):
@@ -904,17 +962,21 @@ def draw_column_C10(sh, el, d):
     sh.dim((x1, lv1), (x1, lv1 + d["lap1"]), (x1 + 2.6 * sh.h, lv1), vertical=True, text=f"lap {fmt(d['lap1'])}")
     sh.dim((x1, lv2), (x1, lv2 + d["lap2"]), (x1 + 2.6 * sh.h, lv2), vertical=True, text=f"lap {fmt(d['lap2'])}")
     # section marks
-    for lab, y in (("0", base + 0.5 * (lv1 - hB - base)), ("1", lv1 + 0.5 * (lv2 - hB - lv1))):
+    names = d.get("names", ("0-0", "1-1"))
+    for lab, y in ((names[0].split("-")[0], base + 0.5 * (lv1 - hB - base)),
+                   (names[1].split("-")[0], lv1 + 0.5 * (lv2 - hB - lv1))):
         sh.line((x0 - 14, y), (x0 - 6, y))
         sh.line((x1 + 6, y), (x1 + 14, y))
         sh.text(lab, (x0 - 10, y + 1.2 * sh.h), 0.9 * sh.h)
         sh.text(lab, (x1 + 10, y + 1.2 * sh.h), 0.9 * sh.h)
     # sections
     xs = x1 + 80 + 18 * sh.h
-    column_section(sh, xs, lv1 - 120, hc, bc, d["n0"], d["p0"], d["phiw"], d["b1"], d["lk"], d["tie"],
-                   "Section 0-0")
-    column_section(sh, xs, lv2 - 80, hc, bc, d["n1"], d["p1"], d["phiw"], d["b2"], d["lk"], d["tie"],
-                   "Section 1-1")
+    column_section(sh, xs, lv1 - 120, hc, bc, d["n0"], d["p0"], d["phiw"], d["b1"], d["lk"],
+                   d["tie"] if not lays or nties[0] else None, f"Section {names[0]}",
+                   layout=lays[0] if lays else None, tie2=d.get("tie2") if lays and nties2[0] else None)
+    column_section(sh, xs, lv2 - 80, hc, bc, d["n1"], d["p1"], d["phiw"], d["b2"], d["lk"],
+                   d["tie"] if not lays or nties[1] else None, f"Section {names[1]}",
+                   layout=lays[1] if lays else None, tie2=d.get("tie2") if lays and nties2[1] else None)
     # bars drawn separately
     xb = xs + hc + 16 * sh.h
     draw_shape(sh, d["b1"], [(xb, base), (xb, base + d["b1"].segs[0])],
@@ -924,6 +986,8 @@ def draw_column_C10(sh, el, d):
     draw_link(sh, el, d["lk"], xs, base + 40, d["lk"].segs[0], d["lk"].segs[1])
     if d["tie"] is not None:
         draw_tie(sh, el, d["tie"], xs, base + 10, d["tie"].segs[0])
+    if d.get("tie2") is not None:
+        draw_tie(sh, el, d["tie2"], xs, base + 25, d["tie2"].segs[0])
     schedule(sh, el, xs, base - 6 * sh.h)
 
 
@@ -982,9 +1046,14 @@ def frame_axis2(P):
         cb = el.bar(phi, [foot, vert], f"column {tag}")
         cw = 10 if phi >= 25 else 8
         bcol, hcol = (inp.C7_b, inp.C7_h) if tag == "C7" else (inp.C1_b, inp.C1_h)
+        c7 = D.get("c7") if tag == "C7" else None
+        if c7:
+            cw = c7["phiw"]
         ck = el.bar(cw, link_segs(hcol - 2 * C, bcol - 2 * C, cw), f"links {tag}", "link")
         cols[tag] = dict(bar=cb, link=ck, phi=phi, n=n, phiw=cw, b=bcol, h=hcol, lap=lapc,
-                         s=min(20 * phi / 10, bcol, 40.0))
+                         s=c7["s"] if c7 else min(20 * phi / 10, bcol, 40.0),
+                         s_c=c7["s_c"] if c7 else None,
+                         lay=(c7["lay"][1]["n_long"], c7["lay"][1]["n_mid"]) if c7 else None)
     sp = BeamSpec(el, bw, hB, hf,
                   supports=[dict(x=xA, t=tA, kind="col", label="C1 (axis A)", below=below),
                             dict(x=xC, t=tC, kind="col", label="C7 (axis C)", below=below + Hf),
@@ -1024,7 +1093,7 @@ def draw_frame(sh, el, sp, fd):
         c["bar"].n += c["n"]
         # links: 0.6·s near the footing and the beam, s in the middle, 0.6·s in the joint
         s = c["s"]
-        s_cr = math.floor(0.6 * s)
+        s_cr = c.get("s_c") or math.floor(0.6 * s)
         lcr = max(hcol, 60.0)
         zones = [(y_ft, y_ft + lcr, s_cr), (y_ft + lcr, -lcr, s), (-lcr, 0, s_cr), (0, sp.h, s_cr),
                  (sp.h, ytop, s_cr)]
@@ -1067,7 +1136,7 @@ def draw_frame(sh, el, sp, fd):
     xs = sh.box[2] + 6 * sh.h
     for tag, c in fd["cols"].items():
         column_section(sh, xs, -c["b"] - 20, c["h"], c["b"], c["n"], c["phi"], c["phiw"], c["bar"], c["link"],
-                       None, f"Column {tag}")
+                       None, f"Column {tag}", layout=c.get("lay"))
         xs += c["h"] + 16 * sh.h
     # bars of the beam drawn separately (also the mirrored ones)
     y = bar_list(sh, sp.runs, min(y_low, y_ft - Hf - 14 * sh.h))

@@ -101,6 +101,26 @@ def column_design(nt, P_, name, NEd, M01, M02, b_mm, h_mm, l_col, l0, mat, plane
     return dict(As=Ast.v, MEd=MEd.v, ok=True, slender=slender, lam=lam.v, lim=lim.v)
 
 
+def frame_column_bars(As_a, As_b, As_c, b, h, d1=45, s_max=250, a_min=50, dias=(16, 20, 25, 28)):
+    """Bar arrangement of the frame column (manual 12.6.6): n_long bars on each long side (h, out-of-plane
+    reinforcement A_s^c, corners included) and n_mid extra bars on each short side (b, in-plane
+    reinforcement A_s^b); the total covers A_s^a. Centre spacing ≤ s_max, clear distance ≥ a_min [mm]."""
+    best = None
+    for phi in dias:
+        A = BAR_AREA[phi]
+        n_long = max(2, math.ceil(As_c / 2 / A - 1e-9), 1 + math.ceil((h - 2 * d1) / s_max - 1e-9))
+        n_mid = max(math.ceil(As_b / 2 / A - 1e-9), math.ceil((b - 2 * d1) / s_max - 1e-9) - 1, 0)
+        while 2 * (n_long + n_mid) * A < As_a:
+            n_long += 1
+        if (h - 2 * d1) / (n_long - 1) - phi < a_min or (n_mid and (b - 2 * d1) / (n_mid + 1) - phi < a_min):
+            continue
+        n = 2 * (n_long + n_mid)
+        cost = n * A * (1 + 0.03 * n)
+        if best is None or cost < best[0]:
+            best = (cost, dict(phi=phi, n=n, n_long=n_long, n_mid=n_mid, As=n * A))
+    return best[1]
+
+
 # ============================================================================
 # IX  column C10
 # ============================================================================
@@ -422,13 +442,17 @@ def section_X(nt, P_, hB15=None):
         return Rg
 
     allQ = set(rQ.keys())
-    pat2 = {(j, (j - 1) % 2) for j in range(1, nlev)}
-    pat3 = {(j, j % 2) for j in range(1, nlev)}
-    # basic (characteristic) load cases and design combinations
-    BASIC = {"G": [(1.0, rG)], "Q1": [(1.0, rQ[k]) for k in sorted(pat2)], "Q2": [(1.0, rQ[k]) for k in sorted(pat3)]}
+    patA = {(j, 0) for j in range(1, nlev)}              # variable actions in span A-C only
+    patE = {(j, 1) for j in range(1, nlev)}              # variable actions in span C-E only
+    patC = {(j, (j - 1) % 2) for j in range(1, nlev)}    # chequerwise arrangement
+    PAT = {"Q1": patA, "Q2": patE, "Q3": patC}
+    # basic (characteristic) load cases and design combinations (manual, 12.3)
+    BASIC = {"G": [(1.0, rG)]}
+    BASIC.update({k: [(1.0, rQ[key]) for key in sorted(v)] for k, v in PAT.items()})
     CH = {k: superpose(v) for k, v in BASIC.items()}
-    LCs = {"LC1": allQ, "LC2": pat2, "LC3": pat3}
-    LCF = {"LC1": {"G": 1.35, "Q1": 1.5, "Q2": 1.5}, "LC2": {"G": 1.35, "Q1": 1.5}, "LC3": {"G": 1.35, "Q2": 1.5}}
+    LCs = {"LC1": allQ, "LC2": patA, "LC3": patC}
+    LCF = {"LC1": {"G": 1.35, "Q1": 1.5, "Q2": 1.5}, "LC2": {"G": 1.35, "Q1": 1.5}, "LC3": {"G": 1.35, "Q3": 1.5}}
+    LCX = {"LC1": "1.35·G + 1.5·(Q1 + Q2)", "LC2": "1.35·G + 1.5·Q1", "LC3": "1.35·G + 1.5·Q3"}
     R = {lc: superpose([(f_ * w, r_) for case, f_ in fs.items() for w, r_ in BASIC[case]]) for lc, fs in LCF.items()}
 
     def lev(j):
@@ -444,7 +468,7 @@ def section_X(nt, P_, hB15=None):
         roof = j == top
         rows.append(("G", lev(j), "both", f"{fmt(G1r.v if roof else G1.v)} / {fmt(G2r.v if roof else G2.v)}",
                      fmt(gb.v)))
-    for case, pat in (("Q1", pat2), ("Q2", pat3)):
+    for case, pat in PAT.items():
         for j, bay in sorted(pat):
             roof = j == top
             rows.append((case, lev(j), bayname[bay], f"{fmt(Q1r.v if roof else Q1.v)} / {fmt(Q2r.v if roof else Q2.v)}",
@@ -453,17 +477,17 @@ def section_X(nt, P_, hB15=None):
              caption="Basic load cases of the frame (characteristic values)")
     nt.bullet("Case G - permanent actions on all spans of all levels: reactions G_k,1 of the secondary beams, "
               "G_k,2 of the facade beams, self-weight of B15 and of the columns.")
-    nt.bullet("Case Q1 - variable actions, chequerboard I: " +
-              ", ".join(f"level {j} bay {bayname[bay]}" for j, bay in sorted(pat2)) + ".")
-    nt.bullet("Case Q2 - variable actions, chequerboard II (the complementary arrangement): " +
-              ", ".join(f"level {j} bay {bayname[bay]}" for j, bay in sorted(pat3)) + ".")
+    nt.bullet("Case Q1 - variable actions only in the first span (A-C), all levels.")
+    nt.bullet("Case Q2 - variable actions only in the second span (C-E), all levels.")
+    nt.bullet("Case Q3 - chequerwise arrangement of the variable actions: " +
+              ", ".join(f"level {j} span {bayname[bay]}" for j, bay in sorted(patC)) + ".")
     nt.p("The secondary beam on axis C (above C7) carries the variable load of both bays; half of it "
          "is assigned to each bay. Q1 + Q2 = variable actions on all spans.", italic=True)
     nt.h3("2.6 Design combinations (ULS, EC0 6.10)")
     nt.table(["Combination", "Expression", "Governs"],
-             [("LC1", "1.35·G + 1.5·(Q1 + Q2)", "support moments of B15, normal forces of the columns, shear"),
-              ("LC2", "1.35·G + 1.5·Q1", "span moments of the loaded bays, column moments (chequerboard I)"),
-              ("LC3", "1.35·G + 1.5·Q2", "span moments of the loaded bays, column moments (chequerboard II)")],
+             [("LC1", LCX["LC1"], "full load: support moments of B15, maximum normal force of C7, shear"),
+              ("LC2", LCX["LC2"], "variable actions only in the first span: bending moments of C7"),
+              ("LC3", LCX["LC3"], "chequerwise arrangement: span moments of B15, bending moments of C7")],
              caption="Design combinations of the frame")
     nt.p("The frame is analysed by the stiffness method (Euler-Bernoulli elements, E_cm, gross "
          "sections, T-section for the beams). The design values are the envelope of LC1-LC3.")
@@ -488,7 +512,7 @@ def section_X(nt, P_, hB15=None):
                         add((y, z, "#1f5fa8"), G2r.v if roof else G2.v)
                     ud[(0.0, M.Ly, z)] = gb.v
                     continue
-                for jj, bay in (pat2 if case == "Q1" else pat3):
+                for jj, bay in PAT[case]:
                     if jj != j:
                         continue
                     Qs, Qf = (Q1r.v, Q2r.v) if roof else (Q1.v, Q2.v)
@@ -512,9 +536,9 @@ def section_X(nt, P_, hB15=None):
             return ([(x, z, fmt(v), c) for (x, z, c), v in pts.items()],
                     [(x0, x1, z, f"g = {fmt(v)}", "#7f8c8d") for (x0, x1, z), v in ud.items()])
 
-        names = {"G": "Case G - permanent actions", "Q1": "Case Q1 - variable actions, chequerboard I",
-                 "Q2": "Case Q2 - variable actions, chequerboard II"}
-        for case in ("G", "Q1", "Q2"):
+        names = {"G": "Case G - permanent actions", "Q1": "Case Q1 - variable actions in span A-C",
+                 "Q2": "Case Q2 - variable actions in span C-E", "Q3": "Case Q3 - chequerwise variable actions"}
+        for case in ("G", "Q1", "Q2", "Q3"):
             pls, ud = drawn({case: 1.0})
             f = pl.frame_case(fr, M.levels, M.ys, pls, ud, mvn(CH[case]),
                               f"{names[case]} (characteristic values)", f"X_case_{case}",
@@ -523,7 +547,7 @@ def section_X(nt, P_, hB15=None):
         nt.p(f"Column self-weight (case G): C1/C12 {fmt(gc1)} kN/m, C7 {fmt(gc7)} kN/m, applied as point "
              "loads at the top of every storey (not drawn). Red: secondary beams B5-B9, blue: facade "
              "beams, grey: self-weight of B15.", italic=True)
-        for lc, expr in (("LC1", "1.35·G + 1.5·(Q1 + Q2)"), ("LC2", "1.35·G + 1.5·Q1"), ("LC3", "1.35·G + 1.5·Q2")):
+        for lc, expr in LCX.items():
             pls, ud = drawn(LCF[lc])
             f = pl.frame_case(fr, M.levels, M.ys, pls, ud, mvn(R[lc]), f"{lc} = {expr} (design values)", f"X_{lc}",
                               titles=("Design loads [kN, kN/m]", "M_Ed [kNm]", "V_Ed [kN]", "N_Ed [kN]"))
@@ -537,7 +561,7 @@ def section_X(nt, P_, hB15=None):
         nt.fig(f, "Envelope of the design bending moments (LC1-LC3)", 13)
     # characteristic values of B15 per basic case
     crow0 = []
-    for case in ("G", "Q1", "Q2"):
+    for case in ("G", "Q1", "Q2", "Q3"):
         for j in range(1, nlev):
             Xb, Mb_, Vb_ = beam_vals_of(CH[case], j)
             crow0.append((case, lev(j), fmt(Mb_[Xb < M.yC - 1e-6].max()), fmt(Mb_[Xb > M.yC + 1e-6].max()),
@@ -585,14 +609,6 @@ def section_X(nt, P_, hB15=None):
         xs1, N1, V1, M1 = R[lc][ids[-1]]
         return -N0[0], M0[0], M1[-1]   # compression +, M bottom, M top
 
-    crow = []
-    for lc in LCs:
-        for tag in ("C7",):
-            for j in (1, 2):
-                Nc, Mb, Mt = col_vals(lc, tag, j)
-                crow.append((lc, tag, f"{j}", fmt(Nc), fmt(Mb), fmt(Mt)))
-    nt.table(["LC", "Column", "Storey", "N_Ed [kN]", "M_bottom [kNm]", "M_top [kNm]"], crow,
-             caption="Column C7 - design forces")
     # ------------------------------------------------------------ design beam
     nt.h2("3. Design of the frame beam B15")
     mat = materials(nt, inp.fck, inp.fyk)
@@ -622,86 +638,266 @@ def section_X(nt, P_, hB15=None):
     nhang = math.ceil(Ah.v / (2 * BAR_AREA[10]))
     nt.p(f"→ {nhang} additional two-leg links Φ10 at each secondary beam "
          "(or bent-up bars 2Φ16 at 45°).", bold=True)
-    # ------------------------------------------------------------ design column C7
+    # ------------------------------------------------------------ design column C7 (manual 12.6 - 12.7)
     nt.h2("4. Design of the column C7")
     nt.p("Of the frame columns only the middle column C7 is designed; the columns C1 and C12 are part of "
-         "the static model of the frame (stiffness, restraint of B15) only.", italic=True)
-    best_c = {}
-    for tag in ("C7",):
-        cands = []
-        for lc in LCs:
-            Nc, Mb, Mt = col_vals(lc, tag, 1)
-            cands.append((lc, Nc, Mb, Mt))
-        best_c[tag] = cands
-    out = {}
-    for tag, (bcm, hcm) in (("C7", (inp.C7_b, inp.C7_h)),):
-        nt.h3(f"Column {tag} - first storey ({fmt(bcm)}/{fmt(hcm)} cm)")
-        l = inp.hb / 100
-        Ic = bcm * hcm**3 / 12
-        Ib = M.Ib * 1e8
-        nb = 2 if tag == "C7" else 1
-        k1 = nt.calc("k_1", S("I_c", Ic, "cm⁴") / S("l", l * 100, "cm") /
-                     (N(4 * nb) * S("I_b", Ib, "cm⁴") / S("l_b", G.Y["C"], "cm")), "",
-                     "Flexibility of the restraint at the top (course formula)")
-        k2 = nt.given("k_2", 0.1, "", "Footing (minimum recommended value)")
-        l0 = nt.calc("l_0", N(0.5) * S("l", l, "m") * sqrt((1 + k1 / (N(0.45) + k1)) * (1 + k2 / (N(0.45) + k2))),
-                     "m", "Effective length in the plane of the frame (braced, EC2 5.15)")
-        l0o = nt.calc("l_0,out", N(0.7) * S("l", l, "m"), "m", "Out of the plane of the frame")
-        res_all = []
-        for lc, Nc, Mb, Mt in best_c[tag]:
-            M02, M01 = (Mb, Mt) if abs(Mb) >= abs(Mt) else (Mt, Mb)
-            res_all.append((lc, Nc, M01, M02))
-        nt.table(["LC", "N_Ed [kN]", "M_01 [kNm]", "M_02 [kNm]"],
-                 [(lc, fmt(Nc), fmt(M01), fmt(M02)) for lc, Nc, M01, M02 in res_all],
-                 caption=f"Design forces of column {tag} (first storey)")
-        As_need = 0
-        for lc, Nc, M01, M02 in res_all:
-            if lc == "LC1" or abs(M02) == max(abs(r[3]) for r in res_all):
-                nt.p(f"{lc}:", bold=True)
-                ri = column_design(nt, P_, tag, Nc, M01, M02,
-                                   bcm * 10, hcm * 10, l, l0.v, mat, "in the plane of the frame")
-                As_need = max(As_need, ri["As"] if ri["ok"] else 1e9)
-        Nmax = max(r[1] for r in res_all)
-        ro = column_design(nt, P_, tag, Nmax, 0.0, 0.0, hcm * 10, bcm * 10, l, l0o.v, mat,
-                           "out of the plane of the frame (N_max)")
-        As_need = max(As_need, ro["As"] if ro["ok"] else 1e9)
-        Asmin = max(0.002 * bcm * hcm * 100, 0.1 * Nmax * 1000 / mat["fyd"])
-        As_need = max(As_need, Asmin)
-        txt, Asp, phi, nbar = column_bars(As_need, bcm * 10, hcm * 10)
-        nt.p(f"Required A_s,tot = {fmt(As_need)} mm² (A_s,min = {fmt(Asmin)} mm²) → adopted {txt} "
-             f"({fmt(Asp)} mm², ρ = {fmt(100 * Asp / (bcm * hcm * 100))} %)", bold=True)
-        if not dry(nt):
-            f = pl.column_section(bcm * 10, hcm * 10, nbar, phi, f"{tag} - {txt}", f"X_{tag}")
-            nt.fig(f, f"Cross-section of column {tag}", 5.5)
-            # interaction diagram
-            import matplotlib.pyplot as plt
-            c = interaction_curve(bcm * 10, hcm * 10, Asp, 45, 0.85 * inp.fck / 1.5, mat["fyd"])
-            fig, ax = plt.subplots(figsize=(5.5, 4))
-            ax.plot(c[:, 1] / 1e6, c[:, 0] / 1e3, color="#1f5fa8", label=f"{txt}")
-            ax.plot(-c[:, 1] / 1e6, c[:, 0] / 1e3, color="#1f5fa8")
-            for lc, Nc, M01, M02 in res_all:
-                ax.plot(abs(M02), Nc, "o", color="#c0392b")
-                ax.annotate(lc, (abs(M02), Nc), fontsize=7, xytext=(4, 2), textcoords="offset points")
-            ax.set_xlabel("M [kNm]")
-            ax.set_ylabel("N [kN] (compression +)")
-            ax.grid(alpha=0.3)
-            ax.legend(fontsize=8)
-            ax.set_title(f"N-M interaction diagram - {tag} (first order forces)", fontsize=9)
-            path = pl._save(fig, f"X_NM_{tag}")
-            nt.fig(path, f"Interaction diagram of column {tag} with the design forces", 11)
-        out[tag] = (txt, Asp, phi, nbar)
-    nt.p("Links in the columns: Φ8 (Φ10 for Φ25 bars), s ≤ min(20·Φ; b; 400 mm), 0.6·s in the "
-         "critical regions at the beams and at laps.", italic=True)
+         "the static model of the frame only. As in the manual (12.6), the column is designed in the first "
+         "storey (sections 4-4 at the footing and 5-5 under the beam) and in the second storey (sections "
+         "6-6 above the beam and 7-7 under the next beam).", italic=True)
+    bcm, hcm = inp.C7_b, inp.C7_h                    # b out of the plane, h in the plane of the frame
+    b_mm, h_mm = bcm * 10, hcm * 10
+    Ac = b_mm * h_mm
+    l1, l2 = inp.hb, inp.hs                          # cm, system heights of the storeys
+    sec_def = {"4-4": (1, 0.0), "5-5": (1, l1 - hB15 / 2), "6-6": (2, hB15 / 2), "7-7": (2, l2 - hB15 / 2)}
+
+    def col_sec(lc, sec):
+        """N (compression +) and M at a section of C7 (the moment is linear along the storey)"""
+        j, z = sec_def[sec]
+        Nc, Mb, Mt = col_vals(lc, "C7", j)
+        L = l1 if j == 1 else l2
+        return Nc, Mb + (Mt - Mb) * z / L
+
+    def col_V(lc, j):
+        Nc, Mb, Mt = col_vals(lc, "C7", j)
+        return abs(Mt - Mb) / ((l1 if j == 1 else l2) / 100)
+
+    F = {(lc, s_): col_sec(lc, s_) for lc in LCs for s_ in sec_def}
+    nt.h3("4.1 Design forces in the considered sections")
+    rows = []
+    for s_ in sec_def:
+        rows.append((f"section {s_}", "N_Ed [kN]") + tuple(fmt(F[(lc, s_)][0]) for lc in LCs))
+        rows.append(("", "M [kNm]") + tuple(fmt(round(abs(F[(lc, s_)][1]), 2)) for lc in LCs))
+    nt.table(["Section", "Force"] + list(LCs), rows,
+             caption="Column C7 - normal forces and bending moments from LC1, LC2, LC3 (sections 5-5 and 6-6 "
+                     "at the faces of B15)")
+    VEd_c = max(col_V(lc, j) for lc in LCs for j in (1, 2))
+    nt.p(f"Design shear force for column C7: max V_Ed = {fmt(VEd_c)} kN.")
+    # -------------------------------------------------------------- effective lengths (manual 12.1.2)
+    nt.h3("4.2 Effective length of the column")
+    Ib_cm = M.Ib * 1e8
+    Ic_cm = bcm * hcm**3 / 12
+    leff = G.Y["C"]
+    nt.p("In the plane of the frame (braced frame, EC2 5.8.3.2): l_0 = 0,5·l·√[(1 + k_1/(0,45 + k_1))·"
+         "(1 + k_2/(0,45 + k_2))]; for the middle joint of a symmetric frame k = (I_c/l)/(4·I_b/l_eff) "
+         "(0,5·EI_b for cracking of the beams, two beams).")
+    nt.given("I_b", Ib_cm, "cm⁴", "B15, T-section")
+    nt.given("I_c", Ic_cm, "cm⁴", f"C7: b·h³/12 = {fmt(bcm)}·{fmt(hcm)}³/12")
+    nt.given("l_eff", leff, "cm", "Effective span of B15")
+    nt.p("First storey:", bold=True)
+    k11 = nt.calc("k_11", S("I_c", Ic_cm, "cm⁴") * S("l_eff", leff, "cm") /
+                  (N(4) * S("I_b", Ib_cm, "cm⁴") * S("l_1", l1, "cm")), "", "Restraint at the first floor")
+    k01 = nt.given("k_01", 0.1, "", "Footing - minimal recommended value")
+    l01 = nt.calc("l_01", N(0.5) * S("l_1", l1, "cm") * sqrt((1 + k01 / (N(0.45) + k01)) * (1 + k11 / (N(0.45) + k11))),
+                  "cm", "In the plane of the frame")
+    nt.p("Second storey:", bold=True)
+    k12 = nt.calc("k_12", S("I_c", Ic_cm, "cm⁴") * S("l_eff", leff, "cm") /
+                  (N(4) * S("I_b", Ib_cm, "cm⁴") * S("l_2", l2, "cm")), "", "k_12 = k_22")
+    l02 = nt.calc("l_02", N(0.5) * S("l_2", l2, "cm") * (1 + k12 / (N(0.45) + k12)), "cm", "In the plane of the frame")
+    nt.p("Out of the plane of the frame (braced by the slabs and the walls):", bold=True)
+    l01o = nt.calc("l_01,out", N(0.7) * S("l_1", l1, "cm"), "cm")
+    l02o = nt.calc("l_02,out", N(0.7) * S("l_2", l2, "cm"), "cm")
+    # -------------------------------------------------------------- materials, axial force (manual 12.6.1-2)
+    nt.h3("4.3 Design characteristics of the materials")
+    matc = materials(nt, inp.fck, inp.fyk, alpha_cc=0.85, title=False)
+    fcd, fyd = matc["fcd"], matc["fyd"]
+
+    def best_lc(secs, key):
+        return max(((lc, s_) for lc in LCs for s_ in secs), key=key)
+
+    nt.h3("4.4 Preliminary design for the axial force")
+    Asa = {}
+    for st, s_ in ((1, "4-4"), (2, "6-6")):
+        lc, _ = best_lc([s_], key=lambda t: F[t][0])
+        NEd = F[(lc, s_)][0]
+        nt.p(f"{'First' if st == 1 else 'Second'} storey (section {s_}) - the most unfavourable load case is {lc}:",
+             bold=True)
+        a_ = nt.calc(f"A_s,tot^a,{st}", (S(f"N_Ed,{s_}", NEd, "kN") * N(1000) - S("f_cd", fcd) * S("A_c", Ac, "mm²")) /
+                     S("f_yd", fyd), "mm²", "N_Ed ≤ f_cd·A_c + f_yd·A_s,tot")
+        amin = nt.calc(f"A_s,min,{st}", emax(N(0.10) * S(f"N_Ed,{s_}", NEd) * N(1000) / S("f_yd", fyd),
+                                             N(0.002) * S("A_c", Ac)), "mm²", "EC2 9.5.2(2)")
+        nt.calc(f"A_s,max,{st}", N(0.04) * S("A_c", Ac), "mm²")
+        Asa[st] = max(a_.v, amin.v)
+        nt.p(f"→ A_s,tot^a = {fmt(Asa[st])} mm²", bold=True)
+    # -------------------------------------------------------------- slenderness (manual 12.6.3)
+    nt.h3("4.5 Second order effects - slenderness")
+    nt.p("Second order effects may be ignored if λ ≤ λ_lim = 20·A·B·C/√n (EC2 5.8.3.1); A = 0,7, "
+         "B = √(1 + 2ω), ω = A_s·f_yd/(A_c·f_cd), C = 1,7 − M_01/M_02 (C = 0,7 out of the plane), "
+         "λ = l_0/i, i = h/√12.")
+    cases = {}
+    for st, (sa, sb), l0, l0o in ((1, ("4-4", "5-5"), l01.v, l01o.v), (2, ("6-6", "7-7"), l02.v, l02o.v)):
+        # in the plane: load case with the largest bending moment in the storey
+        lc, sm = best_lc([sa, sb], key=lambda t: abs(F[t][1]))
+        Ma, Mb_ = F[(lc, sa)][1], F[(lc, sb)][1]
+        M02, M01 = (Ma, Mb_) if abs(Ma) >= abs(Mb_) else (Mb_, Ma)
+        rm = M01 / M02 if abs(M02) > 1e-9 else 1.0
+        NEd = F[(lc, sa)][0]
+        om = Asa[st] * fyd / (Ac * fcd)
+        nt.p(f"{'First' if st == 1 else 'Second'} storey, in the plane of the frame (sections {sa} and {sb}) - "
+             f"the most unfavourable load case is {lc}:", bold=True)
+        i_ = nt.calc(f"i_z", S("h_c", h_mm, "mm") / sqrt(N(12)), "mm")
+        lam = nt.calc(f"λ_z{st}", S(f"l_0{st}", l0 * 10, "mm") / i_, "")
+        nt.calc("ω", S("A_s,tot^a", Asa[st], "mm²") * S("f_yd", fyd) / (S("A_c", Ac, "mm²") * S("f_cd", fcd)), "", digits=3)
+        Bv = math.sqrt(1 + 2 * om)
+        Cv = 1.7 - rm
+        nt.p(f"B = √(1 + 2·{fmt(om)}) = {fmt(Bv)};  C = 1,7 − ({fmt(M01)})/({fmt(M02)}) = {fmt(Cv)} "
+             "(r_m positive when both end moments give tension on the same side)")
+        n_ = nt.calc("n_Ed", S(f"N_Ed,{sa}", NEd, "kN") * N(1000) / (S("A_c", Ac, "mm²") * S("f_cd", fcd)), "")
+        lim = nt.calc(f"λ_lim,z{st}", N(20) * S("A", 0.7) * S("B", Bv, digits=3) * S("C", Cv, digits=3) / sqrt(n_), "")
+        sl = nt.compare(lam, "≤", lim, ok_text="the column is not slender - second order effects may be ignored",
+                        ng_text="the column is slender - second order effects must be accounted for")
+        cases[(st, "in")] = dict(lc=lc, sec=sm, N=F[(lc, sm)][0], M=abs(F[(lc, sm)][1]), l0=l0, slender=not sl,
+                                 lam=lam.v)
+        # out of the plane: maximum normal force, no first order moment
+        lc, _ = best_lc([sa], key=lambda t: F[t][0])
+        NEd = F[(lc, sa)][0]
+        nt.p(f"{'First' if st == 1 else 'Second'} storey, out of the plane of the frame (sections {sa} and {sb}) - "
+             f"the most unfavourable load case is {lc}:", bold=True)
+        i_ = nt.calc("i_y", S("b_c", b_mm, "mm") / sqrt(N(12)), "mm")
+        lam = nt.calc(f"λ_y{st}", S(f"l_0{st},out", l0o * 10, "mm") / i_, "")
+        n_ = nt.calc("n_Ed", S(f"N_Ed,{sa}", NEd, "kN") * N(1000) / (S("A_c", Ac, "mm²") * S("f_cd", fcd)), "")
+        lim = nt.calc(f"λ_lim,y{st}", N(20) * S("A", 0.7) * S("B", Bv, digits=3) * S("C", 0.7) / sqrt(n_), "")
+        sl = nt.compare(lam, "≤", lim, ok_text="the column is not slender - second order effects may be ignored",
+                        ng_text="the column is slender - second order effects must be accounted for")
+        cases[(st, "out")] = dict(lc=lc, sec=sa, N=NEd, M=0.0, l0=l0o, slender=not sl, lam=lam.v)
+
+    def e2_nominal(c, depth_mm, tag, om_k=1.0):
+        """second order eccentricity, nominal curvature (EC2 5.8.8), ω = 1 assumed for K_r"""
+        nt.p("Second order eccentricity (nominal curvature, EC2 5.8.8):", italic=True)
+        beta = nt.calc("β", N(0.35) + S("f_ck", inp.fck) / N(200) - S(f"λ{tag}", c["lam"]) / N(150), "")
+        kphi = nt.calc("k_φ", emax(1 + beta * S("φ_ef", 3.0), N(1.0)), "", "φ_ef = φ(∞,t_0) ≈ 3 assumed")
+        n_ = c["N"] * 1000 / (Ac * fcd)
+        nu = 1 + om_k
+        kr = nt.calc("k_r", emin(emax((S("n_u", nu) - S("n_Ed", n_)) / (S("n_u", nu) - S("n_bal", 0.4)), N(0.0)), N(1.0)),
+                     "", "n_u = 1 + ω, " + ("ω = 1 assumed (to be checked with the final ω)" if om_k == 1.0
+                                            else f"ω = {fmt(om_k)} (recalculated)"))
+        d_ = depth_mm - 25 - 10 - 10
+        nt.p(f"d = {fmt(depth_mm)} − 25 − 10 − 20/2 = {fmt(d_)} mm")
+        r0 = nt.calc("1/r_0", S("f_yd", fyd) / (S("E_s", 200000, "N/mm²") * N(0.45) * S("d", d_, "mm")), "1/mm", digits=7)
+        r = nt.calc("1/r", kr * kphi * r0, "1/mm", digits=7)
+        return nt.calc("e_2", r * (S("l_0", c["l0"] * 10, "mm") / S("π", math.pi)) ** 2, "mm").v
+
+    def design_NM(c, dim_bend, dim_other, plane, om_k=1.0):
+        """e_tot = e_0 + e_i + e_2, M_Ed = N·e_tot, ω_tot from the N-M interaction (design charts)"""
+        NEd = c["N"]
+        nt.p(f"The most unfavourable design combination: {c['lc']}, section {c['sec']}: "
+             f"N_Ed = {fmt(NEd)} kN, M = {fmt(c['M'])} kNm", bold=True)
+        ei = nt.calc("e_i", emax(S("l_0", c["l0"] * 10, "mm") / N(400), S("h", dim_bend, "mm") / N(30), N(20)), "mm",
+                     "Accidental eccentricity")
+        e0 = nt.calc("e_0", S("M", c["M"], "kNm") / S("N_Ed", NEd, "kN") * N(1000), "mm", "First order eccentricity")
+        e2 = e2_nominal(c, dim_bend, "", om_k) if c["slender"] else 0.0
+        if not c["slender"]:
+            nt.p("e_2 = 0 (the column is not slender).")
+        et = nt.calc("e_tot", e0 + ei + S("e_2", e2, "mm"), "mm")
+        MEd = nt.calc("M_Ed", S("N_Ed", NEd, "kN") * et / N(1000), "kNm")
+        nt.calc("m_Ed", MEd * N(1e6, "10⁶") / (S("h", dim_bend, "mm") ** 2 * S("b", dim_other, "mm") * S("f_cd", fcd)), "")
+        nt.calc("n_Ed", -S("N_Ed", NEd, "kN") * N(1000) / (S("h", dim_bend) * S("b", dim_other) * S("f_cd", fcd)), "")
+        nt.p(f"d_1/h = 45/{fmt(dim_bend)} = {fmt(45 / dim_bend)}")
+        As = required_As(NEd * 1000, MEd.v * 1e6, dim_other, dim_bend, 45, fcd, fyd)
+        if As is None:
+            nt.ok("The section is too small for N_Ed, M_Ed - increase the column", False)
+            return float("nan")
+        om = nt.given("ω_tot", As * fyd / (Ac * fcd), "", "From the N-M interaction diagram (design charts), "
+                      "symmetric reinforcement", digits=3)
+        if c["slender"]:
+            if om.v > om_k + 1e-3:
+                nt.p(f"ω_tot = {fmt(om.v)} > {fmt(om_k)} assumed for k_r - k_r is recalculated:", italic=True)
+                return design_NM(c, dim_bend, dim_other, plane, om_k=math.ceil(om.v * 100) / 100)
+            nt.p(f"ω_tot = {fmt(om.v)} ≤ {fmt(om_k)} assumed for k_r - the calculation is on the safe side.",
+                 italic=True)
+        return nt.calc("A_s,tot", om * S("b", dim_other, "mm") * S("h", dim_bend, "mm") / (S("f_yd", fyd) / S("f_cd", fcd)),
+                       "mm²").v
+
+    nt.h3("4.6 Design for bending moment and axial force in the plane of the frame")
+    Asb, Asc = {}, {}
+    for st in (1, 2):
+        nt.p("First storey (sections 4-4 and 5-5):" if st == 1 else "Second storey (sections 6-6 and 7-7):", bold=True)
+        Asb[st] = design_NM(cases[(st, "in")], h_mm, b_mm, "in")
+    nt.h3("4.7 Design for bending with axial force out of the plane of the frame")
+    for st in (1, 2):
+        nt.p("First storey (sections 4-4 and 5-5):" if st == 1 else "Second storey (sections 6-6 and 7-7):", bold=True)
+        Asc[st] = design_NM(cases[(st, "out")], b_mm, h_mm, "out")
+    # -------------------------------------------------------------- final choice (manual 12.6.6)
+    nt.h3("4.8 Final choice of the reinforcement")
+    nt.p("The reinforcement is symmetric. The reinforcement for bending in the plane of the frame (A_s^b) is "
+         "placed at the short sides of the column, the reinforcement for bending out of the plane (A_s^c) "
+         "at the long sides; the total has to cover A_s^a. Bar spacing along a side ≤ 250 mm (every bar "
+         "within 150 mm of a restrained bar is held by links / ties), clear distance ≥ 50 mm.")
+    lay = {}
+    for st in (1, 2):
+        lay[st] = frame_column_bars(Asa[st], Asb[st], Asc[st], b_mm, h_mm)
+    rows = [("Axial force A_s^a", fmt(Asa[1]), f"{lay[1]['n']}Φ{lay[1]['phi']}", fmt(lay[1]["As"]),
+             fmt(Asa[2]), f"{lay[2]['n']}Φ{lay[2]['phi']}", fmt(lay[2]["As"])),
+            ("Bending in the plane A_s^b", fmt(Asb[1]), f"{2 * lay[1]['n_mid']}Φ{lay[1]['phi']}",
+             fmt(2 * lay[1]["n_mid"] * BAR_AREA[lay[1]["phi"]]), fmt(Asb[2]), f"{2 * lay[2]['n_mid']}Φ{lay[2]['phi']}",
+             fmt(2 * lay[2]["n_mid"] * BAR_AREA[lay[2]["phi"]])),
+            ("Bending out of the plane A_s^c", fmt(Asc[1]), f"{2 * lay[1]['n_long']}Φ{lay[1]['phi']}",
+             fmt(2 * lay[1]["n_long"] * BAR_AREA[lay[1]["phi"]]), fmt(Asc[2]), f"{2 * lay[2]['n_long']}Φ{lay[2]['phi']}",
+             fmt(2 * lay[2]["n_long"] * BAR_AREA[lay[2]["phi"]]))]
+    nt.table(["Reinforcement for", "4-4, 5-5: A_s,req", "adopted", "A_s,prov", "6-6, 7-7: A_s,req", "adopted",
+              "A_s,prov"], rows, caption="Column C7 - final choice of the reinforcement [mm²]")
+    for st in (1, 2):
+        L_ = lay[st]
+        nt.p(f"{'Sections 4-4 and 5-5' if st == 1 else 'Sections 6-6 and 7-7'}: {L_['n']}Φ{L_['phi']} "
+             f"({L_['n_long']} bars on each long side, {L_['n_mid']} additional bar(s) on each short side), "
+             f"A_s,prov = {fmt(L_['As'])} mm², ρ = {fmt(100 * L_['As'] / Ac)} %", bold=True)
+    # -------------------------------------------------------------- shear (manual 12.7)
+    nt.h3("4.9 Design of the column for shear")
+    dcol = h_mm - 45
+    VRmax = nt.calc("V_Rd,max", N(0.124) * S("b_c", b_mm, "mm") * S("d", dcol, "mm") *
+                    (1 - S("f_ck", inp.fck) / N(250)) * S("f_ck", inp.fck) / N(1000), "kN",
+                    "θ = 22°, cot θ = 2,5")
+    nt.compare(S("max V_Ed", VEd_c, "kN"), "≤", VRmax, ok_text="no crushing of the concrete struts",
+               ng_text="increase the section")
+    rho = min(lay[1]["As"] / Ac, 0.02)
+    kk = min(1 + math.sqrt(200 / dcol), 2.0)
+    nt.given("ρ_l", rho, "", "A_s,prov/(b_c·h_c) ≤ 0,02", digits=4)
+    kS = nt.calc("k", emin(1 + sqrt(N(200) / S("d", dcol, "mm")), N(2)), "")
+    VRc = nt.calc("V_Rd,c", N(0.12) * kS * (N(100) * S("ρ_l", rho, digits=4) * S("f_ck", inp.fck)) ** N(1 / 3, "1/3") *
+                  S("b_c", b_mm) * S("d", dcol) / N(1000), "kN")
+    vmin = nt.calc("v_min", N(0.035) * kS ** N(1.5) * sqrt(S("f_ck", inp.fck)), "N/mm²")
+    VRcm = nt.calc("V_Rd,c,min", vmin * S("b_c", b_mm) * S("d", dcol) / N(1000), "kN")
+    VRc_v = max(VRc.v, VRcm.v)
+    if VEd_c <= VRc_v:
+        nt.ok(f"max V_Ed = {fmt(VEd_c)} kN ≤ V_Rd,c = {fmt(VRc_v)} kN - no calculation of shear reinforcement "
+              "is necessary", True)
+    else:
+        nt.info("V_Ed > V_Rd,c - shear reinforcement is calculated")
+        shear_links(nt, S("V_Ed", VEd_c, "kN"), S("b_c", b_mm, "mm"), S("d", dcol, "mm"), rho, matc)
+    phimax = max(lay[1]["phi"], lay[2]["phi"])
+    phimin = min(lay[1]["phi"], lay[2]["phi"])
+    phiw = 8 if 0.25 * phimax <= 8 else 10
+    s_ec2 = min(20 * phimin, b_mm, 400)
+    s_na = min(15 * phimin, b_mm, 350)
+    s_lim = min(s_ec2, s_na)
+    s_st = max(math.floor(s_lim / 50) * 50, 100)
+    s_c = max(math.floor(0.6 * s_lim / 50) * 50, 50)
+    nt.p(f"Link diameter: Φ_st ≥ max(0,25·Φ_max; 6 mm) = {fmt(max(0.25 * phimax, 6))} mm → Φ{phiw}.")
+    nt.p(f"Maximum spacing: min(20·Φ_min; b_c; 400 mm) = {fmt(s_ec2)} mm (EC2 9.5.3), in the Bulgarian NA "
+         f"min(15·Φ_min; b_c; 350 mm) = {fmt(s_na)} mm → s_st = {fmt(s_st)} mm. In the confinement zones "
+         f"(above and below the beams over max(h_c; b_c), at the laps): s_c ≤ 0,6·{fmt(s_lim)} = "
+         f"{fmt(0.6 * s_lim)} mm → s_c = {fmt(s_c)} mm.", bold=True)
+    out = {"C7": (f"{lay[1]['n']}Φ{lay[1]['phi']}", lay[1]["As"], lay[1]["phi"], lay[1]["n"])}
+    c7 = dict(lay=lay, phiw=phiw, s=s_st / 10, s_c=s_c / 10, Asa=Asa, Asb=Asb, Asc=Asc)
+    if not dry(nt):
+        import matplotlib.pyplot as plt
+        for st, secs in ((1, "4-4 and 5-5"), (2, "6-6 and 7-7")):
+            L_ = lay[st]
+            f = pl.column_section(h_mm, b_mm, L_["n"], L_["phi"], f"C7, sections {secs} - {L_['n']}Φ{L_['phi']}",
+                                  f"X_C7_{st}", layout=(L_["n_long"], L_["n_mid"]))
+            nt.fig(f, f"Arrangement of the reinforcement of C7 - sections {secs}", 5.5)
     Nbase = {lc: react(1.35, 1.5, pat, M.nodes[(M.yC, 0)]) for lc, pat in LCs.items()}
     Nk = react(1.0, 1.0, allQ, M.nodes[(M.yC, 0)])
     P_.res["X"] = dict(N_Ed=Nbase["LC1"][1], M_Ed=Nbase["LC1"][2], N_k=Nk[1], M_k=Nk[2],
                        hc=inp.C7_h, bc=inp.C7_b, hB15=hB15,
-                       design=dict(r1=r1, r2=r2, r3=r3, sh=sh, nhang=nhang, cols=out, ys_sec=M.ys_sec, d=d.v,
+                       design=dict(r1=r1, r2=r2, r3=r3, sh=sh, nhang=nhang, cols=out, c7=c7, ys_sec=M.ys_sec, d=d.v,
                                    diag=dict(X=list(map(float, env_X)), Mmax=list(map(float, env_max)),
                                              Mmin=list(map(float, env_min)), V=Vmax, cot=2.5)),
                        summary=[("Frame beam B15", f"{fmt(inp.B15_b)}/{fmt(hB15)} cm: span {r1['bars']}, "
                                  f"over C7 {r2['bars']}, over C1 {r3['bars']}, links {sh['links']}"),
-                                ("Column C7 (1st storey)", f"{fmt(inp.C7_b)}/{fmt(inp.C7_h)} cm, {out['C7'][0]}")])
+                                ("Column C7", f"{fmt(inp.C7_b)}/{fmt(inp.C7_h)} cm, sections 4-4/5-5: "
+                                 f"{c7['lay'][1]['n']}Φ{c7['lay'][1]['phi']}, 6-6/7-7: "
+                                 f"{c7['lay'][2]['n']}Φ{c7['lay'][2]['phi']}, links Φ{c7['phiw']}/"
+                                 f"{fmt(c7['s'])} ({fmt(c7['s_c'])}) cm")])
     return bool(r1["ok"] and r2["ok"] and r3["ok"] and sh["ok"])
 
 

@@ -117,7 +117,7 @@ Limits of the template:
 | VII | Beam on axis E (3–4) | bending + torsion (EC2 6.3) |
 | VIII | Beam B5–B9 | 2-span continuous T-beam, envelopes, hanger reinforcement |
 | IX | Column C10 | normal forces floor by floor, α_n reduction, 2nd-order effects, N–M interaction |
-| X | Frame on axis 2 | plane frame, 5 storeys; basic load cases G, Q1, Q2 (two chequerboards of the variable load) with loads and M/V/N diagrams; design combinations LC1 = 1.35G + 1.5(Q1+Q2), LC2 = 1.35G + 1.5Q1, LC3 = 1.35G + 1.5Q2 with M/V/N diagrams and the moment envelope; beam B15 + column C7 (only C7 of the frame is designed) |
+| X | Frame on axis 2 | plane frame, 5 storeys; basic load cases G, Q1 (span A-C), Q2 (span C-E), Q3 (chequerwise) with loads and M/V/N diagrams; design combinations as in the manual (12.3): LC1 = 1.35G + 1.5(Q1+Q2) full load, LC2 = 1.35G + 1.5Q1 variable only in the first span, LC3 = 1.35G + 1.5Q3 chequerwise; moment envelope; beam B15; column C7 as in the manual (12.6-12.7): sections 4-4 / 5-5 (first storey) and 6-6 / 7-7 (second storey), effective lengths from the beam/column stiffness, preliminary design for N, slenderness in and out of the plane, A_s^a / A_s^b (in the plane, short sides) / A_s^c (out of the plane, long sides), final bar arrangement, shear and links |
 | XI | Pad footing under C7 | plan size from R0 (SLS), height from v_Rd,max, bending, punching |
 
 * Geometry comes from the formwork plan (axes 1–7, 5', A–E): the number of one-way
