@@ -451,7 +451,8 @@ def write(formwork_path, out_path, lay, plan, inp, title_extra="", P=None):
             "The dimension lines give the width over which the bars / meshes are placed and every "
             "overlap (lap) of bars or meshes.",
             "Bottom bars run into the supports up to the far face minus the cover; "
-            "top bars are bent down to the bottom cover. Laps of bars: 50Ø.",
+            "top bars are bent down to the bottom cover. Bottom bars end with a 12 cm leg where they do not "
+            "overlap other bars. Laps of bars: 40Ø (Ø8: 32 cm, Ø10: 40 cm).",
         ] + plan.notes
         yy = ext.extmin.y - 60
         for i, s in enumerate(notes):

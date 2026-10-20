@@ -20,8 +20,9 @@ number in the bar schedule.
 
 Detailing rules (EC2 9.3, course practice):
   * cover c_nom = 25 mm; first bar 5 cm from the face of the support
-  * bottom bars run into the supports up to the far face minus the cover
-    (lapped over interior supports, anchored at end supports)
+  * bottom bars run into the supports up to the far face minus the cover and
+    end with a 12 cm leg where they do not overlap other bars; over interior
+    supports the bottom bars of the two panels overlap by 40Φ
   * top bars over interior supports: 0.3·l beyond the face of the support
     (two-way slabs 0.25·l), ends bent down to the bottom cover
   * top bars at monolithic end supports: A_s3 ≥ max(0.25·A_s,span; A_s,min;
@@ -29,14 +30,14 @@ Detailing rules (EC2 9.3, course practice):
   * edges parallel to the span: constructive top bars 5Φ8/m, 0.2·l
   * distribution bars: ≥ 0.2·A_s and ≥ 3Φ8/m (from the calculation)
   * assembly bars under the top bars Φ6/25 cm (Φ8 for slabs ≥ 18 cm)
-  * bars longer than 12 m are split with a lap of 50Φ
+  * laps 40Φ (Φ8: 32 cm, Φ10: 40 cm); bars longer than 12 m are split with a lap
 """
 from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
 
-from .design import BAR_AREA, MESHES, MESH_SHEET, slab_bars
+from .design import BAR_AREA, MESHES, MESH_SHEET, slab_bars, lap_length
 from .engine import fmt
 from .project import HF_TIP
 
@@ -48,6 +49,7 @@ HOOK = 15.0          # cm, hook of top bars into an edge support
 WALL = 25.0          # cm, walls and ordinary beams
 MASS = {d: 7850e-6 * a for d, a in BAR_AREA.items()}      # kg/m
 MESH_LAP = 15.0      # cm, lap of the transverse bars of the meshes
+ANCHOR = 12.0        # cm, leg of the bottom bars at the ends that do not overlap other bars
 
 
 def ceil5(v):
@@ -251,9 +253,9 @@ def n_ar(straight):
 
 def split_run(a, b, phi, anchors=(0.0, 0.0), joints=()):
     """Split a run of bars from a to b (clear) into pieces at the given joint
-    coordinates (lap 50Φ centred on each joint). anchors: extension beyond a
+    coordinates (lap 40Φ centred on each joint). anchors: extension beyond a
     and b into the supports. Returns [(start, end)] (bar ends)."""
-    lap = max(ceil5(50 * phi / 10.0), 30.0)
+    lap = lap_length(phi)
     pts = [a - anchors[0]] + list(joints) + [b + anchors[1]]
     out = []
     for i in range(len(pts) - 1):
@@ -317,7 +319,7 @@ class Builder:
 
     # straight bottom bars across a panel --------------------------------
     def bottom_bars(self, mark, panel, direction, phi, s, ext, frac, rfrac, where, slab,
-                    lab_t=0.5, side=1, mult=1, n_override=None):
+                    lab_t=0.5, side=1, mult=1, n_override=None, hooks=(True, True)):
         """panel = (x0, y0, x1, y1) clear; direction 'x' or 'y' (bar direction);
         ext = (e0, e1) extensions into the supports at both ends; frac =
         position of the drawn bar across the panel; rfrac = position of the
@@ -337,8 +339,17 @@ class Builder:
             p0, p1 = (xr, y0 - ext[0]), (xr, y1 + ext[1])
             yr = y0 + rfrac * (y1 - y0)
             rng = ((x0, yr), (x1, yr))
-        b = self.bar(mark, phi, [L], s, "bottom", where)
-        return self.add(Rep(b, n, p0, p1, side=side, rng=rng, lab_t=lab_t, slab=slab), mult)
+        return self.add(self.bottom_rep(mark, phi, L, s, where, p0, p1, hooks, n, side, rng, lab_t, slab), mult)
+
+    def bottom_rep(self, mark, phi, L, s, where, p0, p1, hooks, n, side, rng, lab_t, slab):
+        """Bottom bar with a leg of ANCHOR cm at the ends that do not overlap other bars."""
+        if hooks == (False, True):                   # the leg is always the first part
+            p0, p1, hooks = p1, p0, (True, False)
+            lab_t, side = 1 - lab_t, -side
+        legs = tuple(ANCHOR if h else 0.0 for h in hooks)
+        segs = ([legs[0]] if legs[0] else []) + [L] + ([legs[1]] if legs[1] else [])
+        b = self.bar(mark, phi, segs, s, "bottom", where)
+        return Rep(b, n, p0, p1, legs=legs, side=side, rng=rng, lab_t=lab_t, slab=slab)
 
     # top bars over an interior support -----------------------------------
     def top_over(self, c, t, direction, span, phi, s, ext, h_cm, frac, where, slab, side=1,
@@ -525,17 +536,21 @@ class Builder:
         phid, sd = D["dist"]["phi"], sp(D["dist"]["s"])
         e = WALL - COVER
         rng_txt = f"slabs {nos[0]}-{nos[-1]}"
+        rj = [D["r1"] if j in (0, n - 1) else D["r2"] for j in range(n)]
+        # over the beams the bottom bars of the two panels overlap by 40Φ (centred on the beam)
+        xe = [(WALL + lap_length(max(rj[j]["phi"], rj[j + 1]["phi"]))) / 2 for j in range(n - 1)]
         for j, (x0, x1) in enumerate(panels):
-            r = D["r1"] if j in (0, n - 1) else D["r2"]
-            self.bottom_bars("BR", (x0, y0, x1, y1), "x", r["phi"], sp(r["s"]), (e, e),
+            r = rj[j]
+            ext = (e if j == 0 else xe[j - 1], e if j == n - 1 else xe[j])
+            self.bottom_bars("BR", (x0, y0, x1, y1), "x", r["phi"], sp(r["s"]), ext,
                              0.26 if j % 2 else 0.33, 0.82,
                              f"{rng_txt}, {'end' if j in (0, n - 1) else 'interior'} span", str(nos[j]),
-                             side=-1, lab_t=0.5)
+                             side=-1, lab_t=0.5, hooks=(j == 0, j == n - 1))
             self.bottom_bars("DR", (x0, y0, x1, y1), "y", phid, sd, (e, e), 0.14, 0.12,
                              f"{rng_txt}, distribution", str(nos[j]), side=-1, lab_t=0.70)
         for j in range(n - 1):                          # bottom bars of two panels overlap in the beam
             yl = y0 + (0.26 if j % 2 else 0.33) * H
-            self.laps["bottom"].append(((panels[j + 1][0] - e, yl), (panels[j][1] + e, yl)))
+            self.laps["bottom"].append(((panels[j + 1][0] - xe[j], yl), (panels[j][1] + xe[j], yl)))
         for j in range(1, n):
             r = D["rB"] if j in (1, n - 1) else D["r2"]
             lcl = max(panels[j - 1][1] - panels[j - 1][0], panels[j][1] - panels[j][0])
@@ -592,11 +607,9 @@ class Builder:
                              f"slab {no}", str(no), side=1, lab_t=0.5)
             s0, s1 = pieces[k]
             yk = y0 + (0.30 + 0.06 * (k % 2)) * H
-            L = s1 - s0
-            b = self.bar("DR", phid, [L], sd, "bottom", f"slab {no}, distribution")
-            self.add(Rep(b, count(H, sd), (s0, yk), (s1, yk), side=-1,
-                         rng=((xa + 0.88 * (xb - xa), y0), (xa + 0.88 * (xb - xa), y1)),
-                         lab_t=0.30, slab=str(no)))
+            self.add(self.bottom_rep("DR", phid, s1 - s0, sd, f"slab {no}, distribution", (s0, yk), (s1, yk),
+                                     (k == 0, k == 2), count(H, sd), -1,
+                                     ((xa + 0.88 * (xb - xa), y0), (xa + 0.88 * (xb - xa), y1)), 0.30, str(no)))
             tops.append((xa, xb, s1 - s0))
         for k in range(2):                              # laps of the distribution bars
             yk = y0 + (0.30 + 0.06 * (k % 2)) * H
@@ -624,11 +637,11 @@ class Builder:
                 (X["5"] + t56 / 2, y0, X["6"] - t56 / 2, y1, t56, t56),
                 (X["6"] + t56 / 2, y0, X["7"] - WALL / 2, y1, t56, WALL)]
 
-    def two_way_bottom(self, panel, tl, tr, rx, ry, where, no, fx=0.30, fy=0.70):
+    def two_way_bottom(self, panel, tl, tr, rx, ry, where, no, fx=0.30, fy=0.70, xext=None, xhooks=(True, True)):
         x0, y0, x1, y1 = panel
         e = WALL - COVER
-        self.bottom_bars("BR", panel, "x", rx["phi"], sp(rx["s"]), (tl - COVER, tr - COVER), fx, 0.86,
-                         where + ", direction x", no, side=-1, lab_t=0.40)
+        self.bottom_bars("BR", panel, "x", rx["phi"], sp(rx["s"]), xext or (tl - COVER, tr - COVER), fx, 0.86,
+                         where + ", direction x", no, side=-1, lab_t=0.40, hooks=xhooks)
         self.bottom_bars("BR", panel, "y", ry["phi"], sp(ry["s"]), (e, e), fy, 0.16,
                          where + ", direction y", no, side=1, lab_t=0.40)
 
@@ -639,14 +652,18 @@ class Builder:
         pans = self.office_panels()
         nos = G.no_office
         e = WALL - COVER
+        rxs = [D["x2"] if k == 1 else D["x1"] for k in range(3)]
+        # bottom bars x overlap by 40Φ over the beams on axes 5 and 6 (centred on the beam)
+        xe = [(pans[k][5] + lap_length(max(rxs[k]["phi"], rxs[k + 1]["phi"]))) / 2 for k in range(2)]
         for k, (x0, y0, x1, y1, tl, tr) in enumerate(pans):
             rx, ry = (D["x2"], D["y2"]) if k == 1 else (D["x1"], D["y1"])
+            ext = (tl - COVER if k == 0 else xe[k - 1], tr - COVER if k == 2 else xe[k])
             self.two_way_bottom((x0, y0, x1, y1), tl, tr, rx, ry, f"slab {nos[k]}", str(nos[k]),
-                                fx=0.34 if k % 2 else 0.27)
+                                fx=0.34 if k % 2 else 0.27, xext=ext, xhooks=(k == 0, k == 2))
         for k in range(2):                              # bottom bars x overlap over axes 5 and 6
             x0, y0, x1, y1, tl, tr = pans[k]
             yl = y0 + (0.34 if k % 2 else 0.27) * (y1 - y0)
-            self.laps["bottom"].append(((pans[k + 1][0] - (pans[k + 1][4] - COVER), yl), (x1 + (tr - COVER), yl)))
+            self.laps["bottom"].append(((pans[k + 1][0] - xe[k], yl), (x1 + xe[k], yl)))
         # top bars over the beams on axes 5 and 6
         rs = D["sup"]
         X = self.lay.X

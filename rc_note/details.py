@@ -30,7 +30,7 @@ from dataclasses import dataclass, field
 
 from ezdxf.enums import TextEntityAlignment
 
-from .design import BAR_AREA, beam_bars
+from .design import BAR_AREA, beam_bars, lap_length
 from .engine import fmt
 
 MC = TextEntityAlignment.MIDDLE_CENTER
@@ -737,7 +737,7 @@ def beam_B5(P):
     ext = ceil5(0.3 * lcl)
     b2 = el.bar(rB["phi"], [t2 + 2 * ext], "top over B15")
     phia = 10
-    lap = ceil5(40 * phia / 10)
+    lap = lap_length(phia)
     la = 15.0
     b3 = el.bar(phia, [la, (t1 - C) + lcl + t2 / 2 + lap / 2], "top assembly bars")
     _, _, p4, n4 = beam_bars(max(0.25 * r1["As_prov"], 2 * BAR_AREA[12]), bw * 10, dias=(12, 14, 16, 18, 20))
@@ -876,8 +876,8 @@ def _column(el, P, bc, hc, p0, n0, p1, n1, s, hB, lays=None, s_c=None, phiw=None
     s_cr = s_c or math.floor(0.6 * s)
     base = -50.0
     lv1, lv2 = inp.hb, inp.hb + inp.hs
-    lap1 = ceil5(50 * p1 / 10)
-    lap2 = ceil5(50 * p1 / 10)
+    lap1 = lap_length(p1)
+    lap2 = lap_length(p1)
     b1 = el.bar(p0, [lv1 + lap1 - base], f"storey 1 (section {names[0]})")
     b2 = el.bar(p1, [lv2 + lap2 - lv1], f"storey 2 (section {names[1]})")
     lk = el.bar(phiw, link_segs(hc - 2 * C, bc - 2 * C, phiw), "links", "link")
@@ -1014,7 +1014,7 @@ def frame_axis2(P):
     l3 = max(hB - 2 * C - 5, 20.0)
     b3 = el.bar(r3["phi"], [l3, (tA - C) + ext], "B15 top over C1 / C12")
     phia = 12
-    lap = ceil5(40 * phia / 10)
+    lap = lap_length(phia)
     b4 = el.bar(phia, [15.0, (tA - C) + lcl + tC / 2 + lap / 2], "B15 top assembly bars")
     lk = el.bar(phiw, link_segs(bw - 2 * C, hB - 2 * C, phiw), "B15 links", "link")
     s1 = shr["s"] / 10
@@ -1040,7 +1040,7 @@ def frame_axis2(P):
     below = inp.hb - hB                      # soffit of the beam above the top of the footing
     cols = {}
     for tag, (txt, As, phi, n) in D["cols"].items():
-        lapc = ceil5(50 * phi / 10)
+        lapc = lap_length(phi)
         foot = 30.0
         vert = (Hf - C_FOOT - 3) + below + hB + lapc
         cb = el.bar(phi, [foot, vert], f"column {tag}")
@@ -1170,7 +1170,7 @@ def footing(P):
     b2.n = n_bars(Lf - 2 * C_FOOT, s, 0)
     cols = P.res.get("X", {}).get("design", {}).get("cols", {})
     txt, As, phic, nc = cols.get("C7", ("", 0, 16, 8))
-    lapc = ceil5(50 * phic / 10)
+    lapc = lap_length(phic)
     b3 = el.bar(phic, [30.0, Hf - C_FOOT - 2 * r["phi"] / 10 + lapc], "starter bars of C7")
     b3.n = nc
     cw = 10 if phic >= 25 else 8

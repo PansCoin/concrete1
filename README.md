@@ -86,7 +86,8 @@ two storeys with its sections (X), pad footing under C7 (XI) and the stairs (V).
 elements are also inserted as figures in section XII of the note. Each drawing has the elevation (plan) with bars, links and link zones, dimension
 lines, cross-sections, the bars drawn separately with the lengths of their parts, position numbers in
 circles and a bar schedule with the mass. Detailing: cover 25 mm (50 mm in the footing), anchorage legs
-12Ø, top bars over supports 0.3·l, links 0.6·s in the critical zones of the columns, laps 50Ø.
+12Ø, top bars over supports 0.3·l, links 0.6·s in the critical zones of the columns, laps 40Ø (Ø8: 32 cm, Ø10: 40 cm);
+bottom bars of the slabs end with a 12 cm leg where they do not overlap other bars.
 
 Also in the element drawings: every bar is drawn separately, the mirrored ones too (each with its
 own label); all overlaps of bars (laps over the supports, assembly bars lapped with the support bars,

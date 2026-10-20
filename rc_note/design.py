@@ -65,6 +65,11 @@ def materials(nt, fck=25.0, fyk=500.0, alpha_cc=1.0, title=True):
 # ============================================================================
 # Bar selection
 # ============================================================================
+def lap_length(phi_mm):
+    """Lap of two bars [cm]: 40Φ (course practice), e.g. Φ8 → 32 cm, Φ10 → 40 cm."""
+    return 4.0 * phi_mm
+
+
 BAR_AREA = {d: math.pi * d * d / 4 for d in (6, 8, 10, 12, 14, 16, 18, 20, 22, 25, 28, 32)}
 
 
