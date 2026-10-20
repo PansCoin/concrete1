@@ -62,12 +62,20 @@ def size_rows(P):
     return rows
 
 
+def beam_depths(P):
+    """Depths of the designed beams for the section marks of the formwork plan [cm]."""
+    res = P.res
+    return dict(hall=res.get("VIII", {}).get("h"), facade=60.0, B15=res.get("X", {}).get("hB15"),
+                B21=res.get("VI", {}).get("h"))
+
+
 def make(P, out_dir, name, png=False, template=TEMPLATE):
     """Write the drawings. Returns dict(files, plan, layout, report)."""
     from . import dxf_formwork, dxf_rebar, rebar
     inp = P.inp
     lay = dxf_formwork.redraw(template, inp.a, inp.b, inp.c, inp.d, inp.hb / 100.0,
-                              hf_by_slab=rebar.slab_thickness(P), size_rows=size_rows(P))
+                              hf_by_slab=rebar.slab_thickness(P), size_rows=size_rows(P),
+                              beam_depths=beam_depths(P))
     f_form = os.path.join(out_dir, f"Formwork_{name}.dxf")
     lay.doc.saveas(f_form)
     plan = rebar.build(P, lay)

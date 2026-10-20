@@ -889,6 +889,145 @@ def update_slab_thickness(doc, msp, hf_by_slab):
             e.dxf.text = f"{m.group(1)}{fmt_num(hf_by_slab[no], '.')}{m.group(3)}"
 
 
+# =============================================================================
+# SECTION MARKS OF THE BEAMS: slab thickness and beam depth from the design
+# =============================================================================
+def find_sections(msp):
+    """Beam section marks = three parallel dimensions of the depth: h_f (slab),
+    web and total h sharing their end points. Returns a list of dicts
+    (ax: 0 = depth along x / 1 = along y, top, f (slab soffit), bot, o (position
+    across), hf, h)."""
+    D = []
+    for e in msp.query("DIMENSION"):
+        try:
+            m = e.get_measurement()
+        except Exception:
+            continue
+        if not isinstance(m, (int, float)) or m > 120:
+            continue
+        ang = round(e.dxf.get("angle", 0.0)) % 180
+        if ang not in (0, 90):
+            continue
+        ax = 0 if ang == 0 else 1
+        p2, p3 = e.dxf.defpoint2, e.dxf.defpoint3
+        a, b = sorted((p2[ax], p3[ax]))
+        D.append(dict(e=e, ax=ax, a=a, b=b, L=b - a, o=(p2[1 - ax] + p3[1 - ax]) / 2, cs=[p2[1 - ax], p3[1 - ax]]))
+    out, used = [], set()
+    for T in D:
+        if not 30 <= T["L"] <= 110 or id(T["e"]) in used:
+            continue
+        for H in D:
+            if H is T or H["ax"] != T["ax"] or not 8 <= H["L"] <= 22.5 or abs(H["o"] - T["o"]) > 90:
+                continue
+            if abs(H["a"] - T["a"]) < 3:
+                top, f, bot, sgn = T["a"], H["b"], T["b"], 1
+            elif abs(H["b"] - T["b"]) < 3:
+                top, f, bot, sgn = T["b"], H["a"], T["a"], -1
+            else:
+                continue
+            W = [w for w in D if w["ax"] == T["ax"] and w is not T and w is not H and abs(w["o"] - T["o"]) < 90
+                 and abs(w["L"] - (T["L"] - H["L"])) < 3 and (abs(w["a"] - f) < 3 or abs(w["b"] - f) < 3)]
+            if not W:
+                continue
+            key = (T["ax"], round(top), round(T["o"] / 10))
+            if any(k == key for k in (g["key"] for g in out)):
+                break
+            used.add(id(T["e"]))
+            out.append(dict(key=key, ax=T["ax"], top=top, f=f, bot=bot, sgn=sgn, o=T["o"],
+                            hf=abs(f - top), h=abs(bot - top), cs=T["cs"] + H["cs"] + W[0]["cs"]))
+            break
+    return out
+
+
+def update_sections(doc, msp, sections, hf_at, depth_of):
+    """Rescale every section mark along its depth so that the slab is hf_at(...)
+    and the beam depth_of(...) (or the template depth rounded to 5 cm)."""
+    mover = Mover(doc, None)
+    hatches = [(h, ezbbox.extents([h], fast=True)) for h in msp.query("HATCH")]
+    report = []
+    moved = set()                                # every entity is rescaled once
+    # beams that are not designed: the template depth in 5 cm steps, the same along one beam line
+    for sec in sections:
+        mid = (sec["top"] + sec["bot"]) / 2
+        cx, cy = (mid, sec["o"]) if sec["ax"] == 0 else (sec["o"], mid)
+        sec["h_set"] = depth_of(cx, cy, sec)
+        sec["h_tpl"] = 5 * math.ceil((sec["h"] - 2) / 5)
+    for sec in sections:
+        if sec["h_set"] is None:
+            same = [t["h_tpl"] for t in sections if t["h_set"] is None and t["ax"] == sec["ax"]
+                    and abs(t["o"] - sec["o"]) < 30]
+            sec["h_tpl"] = max(same)
+    for sec in sections:
+        ax, top, f, bot, sgn, o = sec["ax"], sec["top"], sec["f"], sec["bot"], sec["sgn"], sec["o"]
+        lo, hi = min(top, bot), max(top, bot)
+        mid = (top + bot) / 2
+        cx, cy = (mid, o) if ax == 0 else (o, mid)
+        hf_new = hf_at(cx, cy, sec)
+        if hf_new is None:
+            hf_new = round(sec["hf"])
+        h_new = sec["h_set"]
+        if h_new is None:                          # beam not designed
+            h_new = max(sec["h_tpl"], hf_new + 10)
+        if abs(hf_new - sec["hf"]) < 0.05 and abs(h_new - sec["h"]) < 0.05:
+            continue
+        # extent across the depth: hatches of the symbol
+        across = []
+        for h, bb in hatches:
+            if not bb.has_data:
+                continue
+            a0, a1 = (bb.extmin.x, bb.extmax.x) if ax == 0 else (bb.extmin.y, bb.extmax.y)
+            c0, c1 = (bb.extmin.y, bb.extmax.y) if ax == 0 else (bb.extmin.x, bb.extmax.x)
+            if a0 >= lo - 2 and a1 <= hi + 2 and min(abs(c0 - o), abs(c1 - o), 0 if c0 <= o <= c1 else 1e9) < 90:
+                across += [c0, c1]
+        if not across:                           # no hatch found: the dimensions give the extent
+            across = [min(sec["cs"]) - 40, max(sec["cs"]) + 40]
+        c_lo, c_hi = min(across + sec["cs"]) - 2, max(across + sec["cs"]) + 2
+        hf_old, h_old = sec["hf"], sec["h"]
+
+        def g(t):
+            u = (t - top) * sgn                      # depth measured from the top of the slab
+            if u <= 0:
+                v = u
+            elif u <= hf_old:
+                v = u * hf_new / hf_old
+            elif u <= h_old:
+                v = hf_new + (u - hf_old) * (h_new - hf_new) / (h_old - hf_old)
+            else:
+                v = u + h_new - h_old
+            return top + sgn * v
+
+        def fmap(x, y, s=True):
+            return (g(x), y) if ax == 0 else (x, g(y))
+
+        def inside(pts):
+            for p in pts:
+                a_, c_ = (p[0], p[1]) if ax == 0 else (p[1], p[0])
+                if not (lo - 2 <= a_ <= hi + 2 and c_lo <= c_ <= c_hi):
+                    return False
+            return True
+
+        for e in list(msp.query("LINE LWPOLYLINE HATCH DIMENSION")):
+            if id(e) in moved:
+                continue
+            t = e.dxftype()
+            if t == "DIMENSION":
+                pts = [e.dxf.defpoint2, e.dxf.defpoint3] if e.dxf.hasattr("defpoint2") else []
+                if not pts or not inside(pts):
+                    continue
+            else:
+                try:
+                    bb = ezbbox.extents([e], fast=True)
+                except Exception:
+                    continue
+                if not bb.has_data or not inside([bb.extmin, bb.extmax]):
+                    continue
+            mover.apply(e, fmap)
+            moved.add(id(e))
+        report.append((round(cx), round(cy), hf_new, h_new))
+    return report
+
+
+
 def add_size_table(msp, x0, y0, title, rows, h=12.0):
     """Simple table (title + 2 columns) drawn with lines and texts."""
     if not rows:
@@ -910,10 +1049,65 @@ def add_size_table(msp, x0, y0, title, rows, h=12.0):
         msp.add_line((x, y0), (x, y), dxfattribs={"layer": "text"})
 
 
+def slab_labels(msp):
+    """Slab numbers in circles: list of (number, position)."""
+    circles = [ci for ci in msp.query("CIRCLE") if 18.0 <= ci.dxf.radius <= 21.0]
+    out = []
+    doc = msp.doc
+    for ins in msp.query("INSERT"):                # slab label blocks
+        if ins.dxf.layer != "!Hf":
+            continue
+        blk = doc.blocks.get(ins.dxf.name)
+        if blk is None:
+            continue
+        no = [text_of(e).strip() for e in blk if e.dxftype() in ("TEXT", "MTEXT")
+              and (text_of(e) or "").strip().isdigit()]
+        if no:
+            out.append((int(no[0]), Vec2(ins.dxf.insert)))
+    for e in msp.query("TEXT MTEXT"):
+        st = (text_of(e) or "").strip()
+        if st.isdigit():
+            p = Vec2(e.dxf.insert)
+            if any((Vec2(ci.dxf.center) - p).magnitude < 25 for ci in circles):
+                out.append((int(st), p))
+    return out
+
+
+def section_marks(doc, msp, X, Y, hf_by_slab, depths, n_half):
+    """Slab thickness and beam depth of every beam section mark from the design:
+    depths = dict(hall=B5-B9, facade=B1/B10, B15=..., B21=...) [cm]."""
+    labels = [(n, p) for n, p in slab_labels(msp) if n in hf_by_slab]
+    half = Y["C"] - Y["A"]
+    hall_beams = [Y["A"] + i * half / n_half for i in range(1, n_half)] + [Y["C"]] + \
+                 [Y["C"] + i * half / n_half for i in range(1, n_half)]
+
+    def hf_at(x, y, sec):
+        if not labels:
+            return None
+        n, p = min(labels, key=lambda t: (t[1] - Vec2(x, y)).magnitude)
+        return hf_by_slab[n] if (p - Vec2(x, y)).magnitude < 700 else None
+
+    def depth_of(x, y, sec):
+        if sec["ax"] == 0 and X["1"] < x < X["3"]:                  # beams along x in the hall
+            if any(abs(sec["o"] - yb) < 70 for yb in hall_beams) and depths.get("hall"):
+                return depths["hall"]
+            if min(abs(sec["o"] - Y["A"]), abs(sec["o"] - Y["E"])) < 70 and depths.get("facade"):
+                return depths["facade"]
+        if sec["ax"] == 1 and min(abs(sec["o"] - X["1"]), abs(sec["o"] - X["7"])) < 60 and depths.get("facade"):
+            return depths["facade"]                                  # edge beams on axes 1 and 7
+        if sec["ax"] == 1 and abs(sec["o"] - X["2"]) < 60 and depths.get("B15"):
+            return depths["B15"]
+        if sec["ax"] == 1 and abs(sec["o"] - X["5"]) < 60 and Y["A"] < y < Y["B"] and depths.get("B21"):
+            return depths["B21"]
+        return None
+
+    return update_sections(doc, msp, find_sections(msp), hf_at, depth_of)
+
+
 # =============================================================================
 # MAIN
 # =============================================================================
-def redraw(template_path, a, b, c, d, level, hf_by_slab=None, size_rows=None):
+def redraw(template_path, a, b, c, d, level, hf_by_slab=None, size_rows=None, beam_depths=None):
     """Redraw the template for the new grid. Returns a Layout (doc not saved)."""
     warnings: list[str] = []
     X, Y = new_grid(a, b, c, d)
@@ -1089,6 +1283,7 @@ def redraw(template_path, a, b, c, d, level, hf_by_slab=None, size_rows=None):
     # slab thicknesses from the calculations, table of element sizes
     if hf_by_slab:                        # keys = final slab numbers
         update_slab_thickness(doc, msp, hf_by_slab)
+        sec_report = section_marks(doc, msp, X, Y, hf_by_slab, beam_depths or {}, n_half)
     if size_rows:
         add_size_table(msp, X["7"] + 400.0, Y["E"] + 20.0,
                        "Element sizes (from the calculations)", size_rows)

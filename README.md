@@ -42,6 +42,9 @@ The hall beams are re-spaced, meeting-room panels are added or removed (with
 renumbering of the slabs and beams), the balconies get the depth d and the canopy
 1.25·d. The slab thicknesses `h_f = .. cm` and a table of the element sizes
 (slabs, beams, columns, footing) come from the calculations.
+The beam section marks of the plan are redrawn to the same values: slab thickness h_f of the
+slab at the mark and beam depth h from the design (B5-B9, B15, B21, facade beams 60 cm); beams that
+are not designed keep the template depth rounded up to 5 cm, the same along one beam line.
 
 **Reinforcement plans** – `rc_note/rebar.py` (bar and mesh positions) and `rc_note/dxf_rebar.py`
 (drawing). The background is only the outline of the structure (beams, walls, columns, axes,
