@@ -528,7 +528,23 @@ def section_IV(nt, P_, hf):
     okd = deflection_ld(nt, lshort * 1000, dd, rr["rho"], rr["rho_prov"], rr["As"], rr["As_prov"], mat, 1.3,
                         L["gk"].v, L["qk"].v, L["gd"].v, L["qd"].v)
     nt.p("Balcony (cantilever): K = 0.4", italic=True)
-    okc = deflection_ld(nt, lc.v * 10, d, R["c"]["rho"], R["c"]["rho_prov"], R["c"]["As"], R["c"]["As_prov"], mat,
+    rc = R["c"]
+    okc = deflection_ld(NullNote(), lc.v * 10, d, rc["rho"], rc["rho_prov"], rc["As"], rc["As_prov"], mat,
+                        0.4, gkc.v, qkc.v, gdc.v, qdc.v)
+    if not okc:
+        # more top reinforcement lowers the steel stress (k_σ = 310/σ_s ≤ 1.5) - try before a thicker slab
+        As_t = rc["As_prov"]
+        while As_t < 1.5 * rc["As"] + 1:
+            As_t *= 1.05
+            txt, Asp, phi, sp = slab_bars(As_t, h.v)
+            if deflection_ld(NullNote(), lc.v * 10, d, rc["rho"], Asp / (b.v * d.v), rc["As"], Asp, mat,
+                             0.4, gkc.v, qkc.v, gdc.v, qdc.v):
+                nt.p(f"With {rc['bars']} the simplified l/d check of the cantilever is not satisfied - the top "
+                     f"reinforcement of the balconies is increased to {txt} (A_s,prov = {fmt(Asp)} mm²/m), which "
+                     "lowers the steel stress σ_s:", italic=True)
+                R["c"] = rc = dict(rc, bars=txt, As_prov=Asp, phi=phi, s=sp, rho_prov=Asp / (b.v * d.v))
+                break
+    okc = deflection_ld(nt, lc.v * 10, d, rc["rho"], rc["rho_prov"], rc["As"], rc["As_prov"], mat,
                         0.4, gkc.v, qkc.v, gdc.v, qdc.v)
     nt.h2("7. Reinforcement summary")
     nt.table(["Location", "M_Ed [kNm/m]", "A_s,req [mm²/m]", "Adopted", "A_s,prov [mm²/m]"],
@@ -545,5 +561,5 @@ def section_IV(nt, P_, hf):
         nt.p("Note: the simplified l/d check of the cantilever is not satisfied. The balconies are made "
              f"with a root thickness h_f and a tip thickness of {fmt(HF_TIP)} cm; increase the root thickness or "
              "verify the deflection by calculation (EC2 7.4.3).", italic=True)
-    ok = all(r["ok"] for r in R.values()) and sh["ok"] and okd
+    ok = all(r["ok"] for r in R.values()) and sh["ok"] and okd and okc
     return ok
