@@ -139,8 +139,8 @@ class Sheet:
         if self.msp is not None:
             self.msp.add_circle(self.P(c), r, dxfattribs={"layer": layer})
 
-    def dot(self, c, d_mm, layer="D-BARS"):
-        r = max(d_mm / 20.0, 0.5)
+    def dot(self, c, d_mm, layer="D-BARS", r=None):
+        r = r or max(d_mm / 20.0, 0.5)
         self._u((c[0] - r, c[1] - r), (c[0] + r, c[1] + r))
         if self.msp is not None:
             h = self.msp.add_hatch(color=256, dxfattribs={"layer": layer})
@@ -408,82 +408,286 @@ def bar_list(sh, runs, y, x_shift=0.0):
     return y
 
 
+def _f2(v):
+    return f"{v:.2f}"
+
+
 def draw_shift(sh, sp, y0):
-    """Diagram of the tensile force M_Ed/z, shifted by a_l = 0.45·d·cotθ
-    (EC2 9.2.1.3), compared with the force the bars can take (A_s·f_yd per
-    bar). Positive moments (bottom bars) are drawn downwards."""
+    """Tension shifting diagram (course style): the tensile force M_Ed/z along the
+    beam and the same curve shifted by a_l = 0.45·d·cotθ (EC2 9.2.1.3), drawn over
+    the force the bars can take: one horizontal line per bar (F_Ø = A_s·f_yd), solid
+    where the bar exists and dashed beyond, risers and dots at the bar ends, the
+    length of every step, a_l marked at the maxima, position numbers in circles.
+    Sagging (bottom bars) downwards, hogging (top bars) upwards."""
     import numpy as np
     S = sp.shift
-    x_org = S["x0"]
-    X = np.array(S["X"]) * 100.0 + x_org
+    X = np.array(S["X"]) * 100.0 + S["x0"]
     fyd = S["fyd"]
-    al = 0.45 * S["d"] / 10 * S["cot"]
-    xx = np.linspace(X[0], X[-1], 600)
+    d_mm = S["d"]
+    cot = S["cot"]
+    al = 0.45 * d_mm / 10 * cot
+    sup = sp.supports
+    xl = sup[0]["x"] - sup[0]["t"] / 2
+    xr = sup[-1]["x"] + sup[-1]["t"] / 2
+    xx = np.linspace(X[0], X[-1], 900)
     Fp = np.interp(xx, X, np.maximum(np.array(S["Mpos"]), 0)) / S["zp"]
-    Fn = np.interp(xx, X, np.maximum(-np.array(S["Mneg"]), 0)) / S["zn"] if S.get("Mneg") else np.zeros_like(xx)
+    Fn = (np.interp(xx, X, np.maximum(-np.array(S["Mneg"]), 0)) / S["zn"]) if S.get("Mneg") else np.zeros_like(xx)
 
     def shift(F):
         out = np.empty_like(F)
         for i, x in enumerate(xx):
-            m = abs(xx - x) <= al
-            out[i] = F[m].max()
+            out[i] = F[np.abs(xx - x) <= al].max()
         return out
     Fps, Fns = shift(Fp), shift(Fn)
-    cap_b = [(b, n) for b, n in S["bot"]]
-    cap_t = list(S.get("top", []))
     Fbar = lambda b: BAR_AREA[b.phi] * fyd / 1000.0
-    Rb = sum(n * Fbar(b) for b, n in cap_b)
-    Rt = (cap_t[0][1] * Fbar(cap_t[0][0]) + max([it[1] * Fbar(it[0]) for it in cap_t[1:]] or [0])) if cap_t else 0.0
-    Fmax = max(Fps.max(), Fns.max(), Rb, Rt, 1.0)
-    target = 4.0 * sh.h * 3.5
-    cands = sorted(b_ * 10 ** e for b_ in (1, 2, 2.5, 5) for e in range(0, 5))
-    k = next((c_ for c_ in cands if Fmax / c_ <= target), Fmax / target)   # kN per drawing unit (cm)
-    ytop = y0 - (max(Fns.max(), Rt) / k if (S.get("Mneg") or cap_t) else 0) - 2 * sh.h
-    ya = ytop                                 # axis of the diagram
-    sh.text("Diagram of the tensile force (shifted by a_l)", (x_org, ya + 2.2 * sh.h +
-            (max(Fns.max(), Rt) / k if S.get("Mneg") else 0)), sh.h, align=BL)
-    sh.line((X[0], ya), (X[-1], ya), "D-TEXT")
-    for F, Fs, sgn in ((Fp, Fps, -1), (Fn, Fns, 1)):
-        if F.max() <= 0:
-            continue
-        sh.pline([(x, ya + sgn * f / k) for x, f in zip(xx, F)], "D-HIDDEN")
-        pts = [(xx[0], ya)] + [(x, ya + sgn * f / k) for x, f in zip(xx, Fs)] + [(xx[-1], ya)]
-        sh.pline(pts, "D-LINKS")
-        if sh.msp is not None:
-            h_ = sh.msp.add_hatch(color=254, dxfattribs={"layer": "D-TEXT"})
-            h_.set_solid_fill(color=254)
-            h_.paths.add_polyline_path([sh.P(p) for p in pts], is_closed=True)
-    # force the bars can take: one line per bar
-    for grp, sgn, x_rng in ((cap_b, -1, (X[0], X[-1])), (cap_t, 1, None)):
+
+    def groups(level):
+        """bars of one face: [dict(bar, n, F, runs=[(x0, x1)])], longest first"""
+        g = {}
+        for r in sp.runs:
+            if r["level"] != level:
+                continue
+            e = g.setdefault(id(r["bar"]), dict(bar=r["bar"], n=r["n"], F=Fbar(r["bar"]), runs=[]))
+            e["runs"].append((min(r["x0"], r["x1"]), max(r["x0"], r["x1"])))
+        out = []
+        for e in g.values():
+            iv = sorted(e["runs"])
+            merged = [list(iv[0])]
+            for a_, b_ in iv[1:]:
+                if a_ <= merged[-1][1] + 0.5:
+                    merged[-1][1] = max(merged[-1][1], b_)
+                else:
+                    merged.append([a_, b_])
+            e["runs"] = [tuple(m) for m in merged]
+            e["ends"] = sorted({v for m in iv for v in m})
+            e["cover"] = sum(b_ - a_ for a_, b_ in e["runs"])
+            out.append(e)
+        out.sort(key=lambda e: -e["cover"])
         base = 0.0
-        for k_, item in enumerate(grp):
-            b, n = item[0], item[1]
-            acc = 0.0 if k_ == 0 else base          # bars over a support stack on the continuous bars
-            for i in range(n):
-                acc += Fbar(b)
-                xa, xb = item[2] if len(item) > 2 and item[2] else (x_rng or (X[0], X[-1]))
-                y = ya + sgn * acc / k
-                sh.line((xa, y), (xb, y), "D-BARS")
-                sh.text(f"F Ø{b.phi}", (xa - 0.6 * sh.h, y), 0.75 * sh.h, align=MR)
-            if k_ == 0:
-                base = acc
-    # texts
-    b1 = cap_b[0][0]
-    Mmax = max(np.array(S["Mpos"]))
-    xt = X[-1] + 2 * sh.h
-    lines = [f"F Ø{b1.phi} = A_s·f_yd = {fmt(BAR_AREA[b1.phi])}·{fmt(fyd)} = {fmt(Fbar(b1))} kN",
-             f"M_Ed/z = M_Ed/(ζ·d) = {fmt(Mmax)}/({fmt(S['zp'] / S['d'] * 1000)}·{fmt(S['d'] / 1000)}) = "
-             f"{fmt(Mmax / S['zp'])} kN",
-             f"a_l = 0.45·d·cotθ = 0.45·{fmt(S['d'] / 10)}·{fmt(S['cot'])} = {fmt(al)} cm",
-             f"ΔF_td = 0.5·V_Ed·cotθ = 0.5·{fmt(S['V'])}·{fmt(S['cot'])} = {fmt(0.5 * S['V'] * S['cot'])} kN",
-             f"Scale of the forces: 1 cm = {fmt(k)} kN"]
-    for i, t in enumerate(lines):
-        sh.text(t, (xt, ya - (i + 0.5) * 1.8 * sh.h), 0.85 * sh.h, align=ML)
-    # a_l marked at the maximum
-    i = int(np.argmax(Fp))
-    sh.dim((xx[i], ya - Fp[i] / k), (xx[i] + al, ya - Fp[i] / k), (xx[i], ya - Fp[i] / k - 1.8 * sh.h),
-           text=f"a_l = {fmt(al)}")
-    return min(ya - max(Fps.max(), Rb) / k - 4 * sh.h, ya - 10 * sh.h)
+        for e in out:
+            e["base"] = base
+            base += e["n"] * e["F"]
+        return out
+
+    GB, GT = groups("bot"), groups("top")
+    if not S.get("Mneg") or max(np.maximum(-np.array(S["Mneg"]), 0)) <= 1e-6:
+        GT = []                                      # no hogging moments: only the bottom bars
+
+    def cap(G, x):
+        return sum(e["n"] * e["F"] for e in G if any(a_ - 0.5 <= x <= b_ + 0.5 for a_, b_ in e["runs"]))
+    cap_b = max([cap(GB, x) for x in np.linspace(xl, xr, 300)] + [0.0])
+    cap_t = max([cap(GT, x) for x in np.linspace(xl, xr, 300)] + [0.0])
+    # scale: 1 cm on paper (scale 1:sh.k) = P kN, P from a round series
+    Fmax = max(Fps.max(), Fns.max(), cap_b, cap_t, 1.0)
+    target = 18.0 * sh.h
+    P_ = next((p_ for p_ in (50, 100, 150, 200, 250, 300, 400, 500, 600, 800, 1000, 1500, 2000)
+               if Fmax / (p_ / sh.k) <= target), 2000)
+    ks = P_ / sh.k                                   # kN per drawing unit
+    ht = 1.3 * sh.h                                  # formula texts
+    hog = (Fn.max() > 0.02 * Fmax) or bool(GT and cap_t > 0 and Fn.max() > 0)
+    top_h = (max(Fns.max(), cap_t) / ks) if hog else 0.0
+    ya = y0 - (top_h + 11.5 * sh.h if hog else 2.0 * sh.h)
+    y_b = ya - max(Fps.max(), cap_b) / ks           # lowest point of the sagging part
+    y_t = ya + top_h                                 # highest point of the hogging part
+    # hogging zones (where the shifted curve is > 0): dashed extensions of the top levels stop there
+    hz, inz, z0 = [], False, 0.0
+    for x, v in zip(xx, Fns):
+        if v > 1e-6 and not inz:
+            inz, z0 = True, x
+        elif v <= 1e-6 and inz:
+            inz = False
+            hz.append((z0, x))
+    if inz:
+        hz.append((z0, xx[-1]))
+
+    def gaps(runs, lo, hi):
+        out, cur = [], lo
+        for a_, b_ in runs:
+            if a_ > cur + 0.5:
+                out.append((cur, min(a_, hi)))
+            cur = max(cur, b_)
+        if cur < hi - 0.5:
+            out.append((cur, hi))
+        return [(a_, b_) for a_, b_ in out if b_ - a_ > 0.5]
+
+    # ---------------------------------------------------------------- baseline and level lines
+    sh.line((xl, ya), (xr, ya), "D-TEXT")
+    for G, sgn, zones in ((GB, -1, [(xl, xr)]), (GT, 1, hz)):
+        for e in G:
+            dy = e["F"] / ks
+            tight = dy < 1.1 * sh.h
+            for k in range(1, e["n"] + 1):
+                y = ya + sgn * (e["base"] + k * e["F"]) / ks
+                for a_, b_ in e["runs"]:
+                    sh.line((a_, y), (b_, y), "D-TEXT")
+                for g0, g1 in gaps(e["runs"], xl, xr):
+                    for z0_, z1_ in zones:
+                        a_, b_ = max(g0, z0_), min(g1, z1_)
+                        if b_ - a_ > 0.5:
+                            sh.line((a_, y), (b_, y), "D-HIDDEN")
+                if not tight or k == e["n"]:
+                    yt = y if not tight else y - sgn * (e["n"] - 1) * dy / 2
+                    sh.text(f"F Ø{e['bar'].phi}", (xl - 0.8 * sh.h, yt), 0.85 * sh.h, align=MR)
+            # risers and dots at the bar ends
+            y0_, y1_ = ya + sgn * e["base"] / ks, ya + sgn * (e["base"] + e["n"] * e["F"]) / ks
+            for x in e["ends"]:
+                sh.line((x, y0_), (x, y1_), "D-TEXT")
+                for k in range(1, e["n"] + 1):
+                    sh.dot((x, ya + sgn * (e["base"] + k * e["F"]) / ks), 0, "D-TEXT", r=0.55 * sh.h)
+    # ---------------------------------------------------------------- lengths of the steps (top bars)
+    risers = sorted({x for e in GT for x in e["ends"]})
+    for e in GT:
+        y0_, y1_ = ya + e["base"] / ks, ya + (e["base"] + e["n"] * e["F"]) / ks
+        ym = (y0_ + y1_) / 2
+        for x in e["ends"]:
+            s_ = min(sup, key=lambda s: abs(s["x"] - x))
+            face = s_["x"] + (s_["t"] / 2 if x > s_["x"] else -s_["t"] / 2)
+            if (x - s_["x"]) * (x - face) <= 0:          # inside the support
+                continue
+            between = [r_ for r_ in risers if min(face, x) + 0.5 < r_ < max(face, x) - 0.5]
+            x_prev = (max(between) if x > face else min(between)) if between else face
+            Ls = abs(x - x_prev)
+            if Ls < 2.0 * sh.h:
+                continue
+            sh.line((x_prev, ym), (x, ym), "D-TEXT")
+            sh.text(fmt(Ls), ((x + x_prev) / 2, ym + 1.1 * sh.h), 1.0 * sh.h)
+    # ---------------------------------------------------------------- curves
+    def curve(F, sgn, layer):
+        sh.pline([(x, ya + sgn * f / ks) for x, f in zip(xx, F)], layer)
+    curve(Fp, -1, "D-TEXT")
+    curve(Fps, -1, "D-CONCRETE")
+    if hog:
+        curve(Fn, 1, "D-TEXT")
+        curve(Fns, 1, "D-CONCRETE")
+    # ---------------------------------------------------------------- sagging maxima: a_l, M/z, bubbles
+    y_dim = y_b - 2.6 * sh.h
+    y_u = y_dim - 4.5 * sh.h                          # underline of the M/z texts
+    zeta_p = S["zp"] / (d_mm / 1000)
+    first = True
+    for i in range(len(sup) - 1):
+        m = (xx >= sup[i]["x"]) & (xx <= sup[i + 1]["x"])
+        if not m.any() or Fp[m].max() < 0.05 * Fmax:
+            continue
+        k_ = int(np.argmax(np.where(m, Fp, -1)))
+        xa, Fa = xx[k_], Fp[k_]
+        sh.line((xa, ya), (xa, ya - Fa / ks), "D-TEXT")
+        sh.dim((xa - al, y_dim + 1.0 * sh.h), (xa, y_dim + 1.0 * sh.h), (xa - al, y_dim), text=f"a_l={_f2(al)}")
+        sh.dim((xa, y_dim + 1.0 * sh.h), (xa + al, y_dim + 1.0 * sh.h), (xa, y_dim), text=f"a_l={_f2(al)}")
+        l1 = "M_Ed/z = M_Ed/(ζ·d) ="
+        l2 = f"= {_f2(Fa * S['zp'])}/({zeta_p:.3f}·{d_mm / 1000:.3f}) = {_f2(Fa)} kN"
+        xu = xa + 4.0 * sh.h
+        w = 0.62 * ht * max(len(l1), len(l2))
+        sh.pline([(xa, ya - Fa / ks), (xu, y_u), (xu + w, y_u)], "D-TEXT")
+        sh.text(l1, (xu + 0.3 * sh.h, y_u + 0.3 * sh.h), ht, align=BL)
+        sh.text(l2, (xu + 0.3 * sh.h, y_u - 1.35 * ht), ht, align=BL)
+        # position numbers of the bottom bars present at the maximum
+        for e in GB:
+            if not any(a_ <= xa <= b_ for a_, b_ in e["runs"]):
+                continue
+            dy = e["F"] / ks
+            r_ = min(0.85 * sh.h, 0.45 * dy) if dy >= 1.1 * sh.h else None
+            for k in range(1, e["n"] + 1):
+                y = ya - (e["base"] + k * e["F"]) / ks
+                if r_:
+                    sh.circle((xa + 3.0 * sh.h, y), r_)
+                    sh.text(str(e["bar"].pos), (xa + 3.0 * sh.h, y), 1.6 * r_ * 0.55)
+                elif k == e["n"]:
+                    sh.bubble(e["bar"].pos, (xa + 3.0 * sh.h, y + (e["n"] - 1) * dy / 2))
+        first = False
+    # ---------------------------------------------------------------- F text of the bottom bars (left end)
+    if GB:
+        e = GB[0]
+        xe = e["ends"][0]
+        A = BAR_AREA[e["bar"].phi]
+        l1 = f"F_Ø{e['bar'].phi} = A_s,Ø{e['bar'].phi}·f_yd = {fmt(A)}·{fmt(fyd)} ="
+        l2 = f"= {A * fyd:.0f} N = {_f2(e['F'])} kN"
+        sh.line((xe, ya - (e["base"] + e["F"]) / ks), (xe, y_u), "D-TEXT")
+        w = 0.62 * ht * max(len(l1), len(l2))
+        sh.line((xe, y_u), (xe + w, y_u), "D-TEXT")
+        sh.text(l1, (xe + 0.3 * sh.h, y_u + 0.3 * sh.h), ht, align=BL)
+        sh.text(l2, (xe + 0.3 * sh.h, y_u - 1.35 * ht), ht, align=BL)
+    # ---------------------------------------------------------------- hogging: supports with top bars
+    block = []                                       # lines of the text block on the right
+    if hog:
+        y_dt = y_t + 2.6 * sh.h                      # a_l dimensions above the diagram
+        y_ut = y_dt + 3.5 * sh.h + 3.2 * ht          # underline of the F text (interior supports)
+        zeta_n = S["zn"] / (d_mm / 1000)
+        f_done = set()
+        for j, s_ in enumerate(sup):
+            xs, t = s_["x"], s_["t"]
+            Fs = float(np.interp(xs, xx, Fn))
+            Gs = [e for e in GT if any(a_ <= xs <= b_ for a_, b_ in e["runs"])]
+            if Fs < 0.05 * Fmax or not Gs:
+                continue
+            end = j in (0, len(sup) - 1)
+            side = -1 if (j == len(sup) - 1 and j > 0) else 1
+            face = xs + side * t / 2
+            # M_Ed/z at the axis, one step F_Ø at the face, a_l on both sides
+            x_md = (face + side * 5.0 * sh.h) if end else (xs - side * (t / 2 + 2.5 * sh.h))
+            sh.dim((xs, ya), (xs, ya + Fs / ks), (x_md, ya), vertical=True, text=f"M_Ed/z={_f2(Fs)} kN")
+            e = max(Gs, key=lambda e_: e_["F"] * e_["n"])
+            yk0 = ya + (e["base"] + (e["n"] - 1) * e["F"]) / ks
+            yk1 = ya + (e["base"] + e["n"] * e["F"]) / ks
+            sh.dim((face, yk0), (face, yk1), (face + side * (8.0 if end else 6.0) * sh.h, yk0), vertical=True,
+                   text=f"{_f2(e['F'])} kN")
+            for a_, b_ in ((xs - al, xs), (xs, xs + al)):
+                if any(any(r0 <= (a_ + b_) / 2 <= r1 for r0, r1 in e_["runs"]) for e_ in Gs):
+                    sh.dim((a_, y_dt - 1.0 * sh.h), (b_, y_dt - 1.0 * sh.h), (a_, y_dt), text=f"a_l={_f2(al)}")
+            A = BAR_AREA[e["bar"].phi]
+            lf1 = f"F_Ø{e['bar'].phi} = A_s,Ø{e['bar'].phi}·f_yd = {fmt(A)}·{fmt(fyd)} ="
+            lf2 = f"= {A * fyd:.0f} N = {_f2(e['F'])} kN"
+            lm = (f"M_Ed/z = M_Ed/(ζ·d) = {_f2(Fs * S['zn'])}/({zeta_n:.3f}·{d_mm / 1000:.3f}) = "
+                  f"{_f2(Fs)} kN")
+            lab = s_.get("label", "").split(" ")[0]
+            if end:                                  # end support: in the text block on the right
+                block.append((f"Support {lab}: " + lm, ))
+                if e["bar"].phi not in f_done:
+                    block.append((lf1, lf2))
+                    f_done.add(e["bar"].phi)
+            else:                                    # interior support: leader and text above
+                ends = [x for x in e["ends"] if (x - xs) * side > 0]
+                xe = min(ends, key=lambda x: abs(x - xs)) if ends else face
+                sh.line((xe, ya + (e["base"] + e["n"] * e["F"]) / ks), (xe, y_ut), "D-TEXT")
+                w = 0.62 * ht * max(len(lf1), len(lf2), len(lm))
+                sh.line((xe, y_ut), (xe + w, y_ut), "D-TEXT")
+                sh.text(lf1, (xe + 0.3 * sh.h, y_ut + 0.3 * sh.h), ht, align=BL)
+                sh.text(lf2, (xe + 0.3 * sh.h, y_ut - 1.35 * ht), ht, align=BL)
+                sh.text(lm, (xe + 0.3 * sh.h, y_ut - 2.9 * ht), ht, align=BL)
+                f_done.add(e["bar"].phi)
+            # position numbers at the face of the support
+            xb = face + side * 2.5 * sh.h
+            for e_ in Gs:
+                dy = e_["F"] / ks
+                r_ = min(0.85 * sh.h, 0.45 * dy) if dy >= 1.1 * sh.h else None
+                for k in range(1, e_["n"] + 1):
+                    y = ya + (e_["base"] + k * e_["F"]) / ks
+                    if r_:
+                        sh.circle((xb, y), r_)
+                        sh.text(str(e_["bar"].pos), (xb, y), 1.6 * r_ * 0.55)
+                    elif k == e_["n"]:
+                        sh.bubble(e_["bar"].pos, (xb, y - (e_["n"] - 1) * dy / 2))
+    # ---------------------------------------------------------------- right end: text block
+    dF = 0.5 * S["V"] * cot
+    for x_end in (X[0], X[-1]):
+        v = float(np.interp(x_end, xx, Fps))
+        if v > 1e-6:
+            sh.line((x_end, ya), (x_end, ya - v / ks), "D-TEXT")
+    lines = [(f"ΔF_td = 0.5·V_Ed·cotθ = 0.5·{_f2(S['V'])}·{fmt(cot)} = {_f2(dF)} kN", ),
+             (f"a_l = 0.45·d·cotθ = 0.45·{fmt(d_mm / 10)}·{fmt(cot)} = {_f2(al)} cm", )] + block
+    b0 = GB[0] if GB else None
+    lines.append((f"1 cm = {P_:g} kN" + (f";  F_Ø{b0['bar'].phi} = {_f2(b0['F'])} kN = {b0['F'] / P_:.2f} cm"
+                                         if b0 else ""), ))
+    xt = xr + (9.0 if hog else 2.0) * sh.h
+    yl = (ya + top_h) if hog else ya
+    for item in lines:
+        for t_ in item:
+            sh.text(t_, (xt, yl), ht, align=BL)
+            yl -= 1.5 * ht
+        yl -= 0.6 * ht
+    # ---------------------------------------------------------------- title
+    y_title = y_u - 1.35 * ht - 4.0 * sh.h
+    sh.text("Tension shifting diagram", ((xl + xr) / 2, y_title), 1.6 * sh.h)
+    return y_title - 2.5 * sh.h
 
 
 def draw_beam(sh, sp, x_off=0.0, draw_sections=True, draw_list=True, sched=True):
