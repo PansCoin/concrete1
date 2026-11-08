@@ -59,9 +59,24 @@ T (L for edge beams, stepped where the slabs on the two sides are at different l
 thickness of the slab field on each side and the beam depth h from the design (B5-B9, B15, B21,
 facade beams 60 cm); beams that are not designed keep the template depth rounded up to 5 cm, the
 same along one beam line. The dimensions h_f + web are on one side, h (or the other slab) on the
-other, at the same distance. The stretched dimensions of the template are replaced by clean chains:
-faces + axes and the overall size on all four sides, the beams of the hall, the panels of the
-meeting room and the balconies.
+other, at the same distance.
+
+The plan is laid out on one regular pattern:
+
+* every section mark sits in the **middle of its beam span** (between two supports), one mark of a
+  kind per span; the marks of one span on parallel beams (hall bays, offices, meeting-room panels)
+  are shifted together when a wall or a column is in the way, so they stay in line. The meeting
+  room gets a mark on D and E in every panel. Beam names in the way move along their beam, column
+  names to the other side of the column. The marks in the stair core stay where the example has
+  them (they show the landings).
+* slab labels and level marks: one-way slabs of the hall and the corridor – label at 1/4, level
+  mark at 3/4 of the length (the beam marks in the middle); meeting-room panels – label at 3/4, level
+  mark at 1/4 of the height; two-way slabs – label in the centre, level mark above right of it. A
+  row of panels is shifted together when something is in the way. Panels without a level mark get
+  one, level symbols without a text and loose pieces of the template are removed.
+* dimension chains outside the plan: faces + axes and the overall size on all four sides, the
+  beams of the hall on the left (closest to the plan), the panels of the meeting room above axis E
+  and the balconies on the right.
 
 **Reinforcement plans** – `rc_note/rebar.py` (bar and mesh positions) and `rc_note/dxf_rebar.py`
 (drawing). The background is only the outline of the structure (beams, walls, columns, axes,

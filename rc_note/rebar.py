@@ -637,6 +637,17 @@ class Builder:
                 (X["5"] + t56 / 2, y0, X["6"] - t56 / 2, y1, t56, t56),
                 (X["6"] + t56 / 2, y0, X["7"] - WALL / 2, y1, t56, WALL)]
 
+    def label_at(self, no):
+        """centre of the number of slab 'no' on the formwork plan (None if not there)"""
+        if not hasattr(self, "_labels"):
+            from .dxf_formwork import _label_clusters
+            doc = self.lay.doc
+            self._labels = {L["no"]: L["c"] for L in _label_clusters(doc, doc.modelspace())}
+        try:
+            return self._labels.get(int(no))
+        except (TypeError, ValueError):
+            return None
+
     def two_way_bottom(self, panel, tl, tr, rx, ry, where, no, fx=0.30, fy=0.70, xext=None, xhooks=(True, True)):
         x0, y0, x1, y1 = panel
         e = WALL - COVER
@@ -714,8 +725,15 @@ class Builder:
         phy, sy = edge_top_bars(D["y1"], hf)
         for no, (x0, y0, x1, y1) in slabs:
             where = f"slab {no}"
+            # the drawn bars keep clear of the slab number of the plan (and of the range lines
+            # of the other direction at 0.16 / 0.86)
+            fx, fy = 0.22, 0.78
+            c = self.label_at(no)
+            if c is not None:
+                fx = next((f for f in (0.22, 0.30, 0.38, 0.46) if abs(y0 + f * (y1 - y0) - c.y) >= 40), fx)
+                fy = next((f for f in (0.78, 0.70, 0.62, 0.54) if abs(x0 + f * (x1 - x0) - c.x) >= 40), fy)
             self.two_way_bottom((x0, y0, x1, y1), WALL, WALL, D["x1"], D["y1"], where, str(no),
-                                fx=0.22, fy=0.78)
+                                fx=fx, fy=fy)
             W, H = x1 - x0, y1 - y0
             for face, inward in ((x0, 1), (x1, -1)):
                 b, rep = self.top_edge(face, WALL, inward, "x", (y0, y1), phx, sx, ceil5(0.2 * W), hf,
