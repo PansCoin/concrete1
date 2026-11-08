@@ -79,8 +79,10 @@ The plan is laid out on one regular pattern:
   and the balconies on the right.
 
 **Reinforcement plans** – `rc_note/rebar.py` (bar and mesh positions) and `rc_note/dxf_rebar.py`
-(drawing). The background is only the outline of the structure (beams, walls, columns, axes,
-names and slab numbers – no section marks, dimensions, levels or stairs), in grey.
+(drawing). The background is only the outline of the structure (beams, walls, columns, axes and
+names – no section marks, dimensions, levels or stairs), in grey. The slab numbers are drawn in each
+plan after the bars: in the place of the formwork plan or the nearest place of the same slab where
+no bar, mesh, label, dimension or line of the background crosses the circle.
 
 * Hall slabs 1–6: **welded wire meshes** R131 / R188 / R221 / R257 / R335 / R424 / R524
   (R-type, main bars along the span, sheet 5.00 × 2.15 m). The mesh of every section is chosen in
@@ -113,9 +115,10 @@ section XII of the note.
 **Element details** – `rc_note/details.py`, drawn under the slab plans in the same file and written
 again one element per file (`Reinforcement_<element>_<name>.dxf`, border + title block), from the
 results of sections V–XI: beam B21 (VI), beam on axis E with torsion (VII), continuous beam B5 (VIII),
-column C10 over two storeys (IX), frame on axis 2 with B15 and C7 (C1, C12 as outline) (X), column C7 over
-two storeys with its sections (X), pad footing under C7 (XI) and the stairs (V). The drawings of the
-elements are also inserted as figures in section XII of the note. Each drawing has the elevation (plan) with bars, links and link zones, dimension
+column C10 over two storeys (IX), frame on axis 2 – beam B15 (the columns as outlines: only C7 is
+designed and it has its own drawing, C1 and C12 belong to the static model of the frame only) (X), column C7 over
+two storeys with its sections (X), pad footing under C7 (XI) and the stairs (V). Only two columns are
+designed: C10 and the frame column C7. Each drawing has the elevation (plan) with bars, links and link zones, dimension
 lines, cross-sections, the bars drawn separately with the lengths of their parts, position numbers in
 circles and a bar schedule with the mass. Detailing: cover 25 mm (50 mm in the footing), anchorage legs
 12Ø, top bars over supports 0.3·l, links 0.6·s in the critical zones of the columns, laps 40Ø (Ø8: 32 cm, Ø10: 40 cm);
@@ -123,12 +126,19 @@ bottom bars of the slabs end with a 12 cm leg where they do not overlap other ba
 
 Also in the element drawings: every bar is drawn separately, the mirrored ones too (each with its
 own label); all overlaps of bars (laps over the supports, assembly bars lapped with the support bars,
-laps of the column bars above the slabs) are dimensioned; the frame on axis 2 shows the vertical bars of
-the columns separately with the lengths of their parts (in the footing, in the storey, in the beam, lap);
+laps of the column bars above the slabs) are dimensioned; the column C7 shows its vertical bars
+separately with the lengths of their parts;
 beams B21, B5 and the frame beam B15 have the diagram of the tensile force M_Ed/z shifted by a_l = 0.45·d·cotθ, compared
 with the force the bars can take (A_s·f_yd per bar), with ΔF_td = 0.5·V_Ed·cotθ.
 In the slab plans every overlap is dimensioned too: side laps of the meshes, meshes and bottom bars
 overlapping in the beams, laps of the distribution bars.
+
+Stairs (manual, Figure 7.4): bottom bars of the flight anchored in the floor slab and of the landing
+running into the wall; at the kink between flight and landing (re-entrant corner) the bars are not bent
+– each runs on straight into the top of the other part and is anchored with l_bd = 40Φ beyond the
+crossing; top bars Φ8/20 at both supports over 0.2·l; distribution bars Φ8/20; in every step a bent
+bar Φ8/30 (riser + tread, anchored in the waist) and one bar Φ8 at the nosing; cut 1-1 across the
+flight; the bars drawn separately at half the scale.
 
 **Minimum slab thickness 12 cm** – the automatic search of every slab starts at 12 cm, smaller values
 given in the input file are raised to 12 cm (with a message); the balconies are 12 cm at the free edge.

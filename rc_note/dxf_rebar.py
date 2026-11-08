@@ -114,23 +114,23 @@ def merge_beam_lines(msp, holes, gap_max=70.0):
 
 
 def prepare_background(doc, lay):
-    """Grey outline of the structure (beams, walls, columns, axes, names,
-    slab numbers) in a block."""
+    """Grey outline of the structure (beams, walls, columns, axes, names) in a block.
+    Returns the slab numbers of the formwork plan [(number, (x, y))]: they are not part
+    of the background, every plan places them where no bar or dimension crosses them."""
+    from .dxf_formwork import _label_clusters
     msp = doc.modelspace()
-    circles = [e for e in msp.query("CIRCLE") if 18.0 <= e.dxf.radius <= 21.0]   # slab numbers
+    numbers = [(L["no"], (L["c"].x, L["c"].y)) for L in _label_clusters(doc, msp)]
     for e in list(msp):
         t = e.dxftype()
         keep = e.dxf.layer in BG_LAYERS and t in BG_TYPES
         if t in ("TEXT", "MTEXT"):
             s = _text(e)
             if s.isdigit():
-                p = e.dxf.insert
-                keep = _height(e) >= 25 or any(math.dist((p.x, p.y), (c.dxf.center.x, c.dxf.center.y)) < 25
-                                               for c in circles)
+                keep = _height(e) >= 25                     # axis numbers (slab numbers: placed later)
             else:
                 keep = bool(LABEL_RE.fullmatch(s)) and e.dxf.insert.x < lay.X["7"] + 300
         elif t == "CIRCLE" and 18.0 <= e.dxf.radius <= 21.0:
-            keep = True
+            keep = False
         if e.dxf.layer == "SHEET":                    # frame and title block of the formwork sheet
             keep = False
         if not keep:
@@ -158,6 +158,122 @@ def prepare_background(doc, lay):
             "dimtih": 0, "dimtoh": 0, "dimclrd": 3, "dimclre": 3, "dimclrt": 3, "dimtxsty": "RC_TEXT",
             "dimlunit": 2, "dimscale": 1.0, "dimtmove": 2,
         })
+    return numbers
+
+
+# ============================================================================
+# slab numbers: in a free place of their slab
+# ============================================================================
+SLAB_R = 19.4        # radius of the circle of a slab number
+SLAB_H = 20.0        # height of the number
+
+
+def _geometry(entities, dx=0.0, depth=0):
+    """segments [((x0, y0), (x1, y1))] and boxes [(x0, y0, x1, y1)] of entities"""
+    segs, boxes = [], []
+    for e in entities:
+        t = e.dxftype()
+        try:
+            if t == "LINE":
+                a, b = e.dxf.start, e.dxf.end
+                segs.append(((a.x + dx, a.y), (b.x + dx, b.y)))
+            elif t == "LWPOLYLINE":
+                pts = [(q[0] + dx, q[1]) for q in e.get_points("xy")]
+                if e.closed and pts:
+                    pts.append(pts[0])
+                segs += list(zip(pts, pts[1:]))
+            elif t == "DIMENSION" and depth == 0:
+                sg, bx = _geometry(list(e.virtual_entities()), dx, 1)
+                segs += sg
+                boxes += bx
+            elif t == "HATCH" and depth == 0 and not e.dxf.solid_fill:
+                from ezdxf import path as ezpath
+                for pa in ezpath.from_hatch(e):
+                    pts = [(q.x + dx, q.y) for q in pa.flattening(2.0)]
+                    segs += list(zip(pts, pts[1:]))
+            elif t in ("TEXT", "MTEXT") and abs(e.dxf.get("rotation", 0.0)) % 90 > 0.5:
+                from ezdxf.disassemble import make_primitive
+                pts = [(v.x + dx, v.y) for v in make_primitive(e).vertices()]   # rotated text: its outline
+                segs += list(zip(pts, pts[1:]))
+            elif t in ("TEXT", "MTEXT", "HATCH", "CIRCLE", "ARC", "SOLID"):
+                bb = ezbbox.extents([e], fast=True)
+                if bb.has_data:
+                    boxes.append((bb.extmin.x + dx, bb.extmin.y, bb.extmax.x + dx, bb.extmax.y))
+        except Exception:
+            continue
+    return segs, boxes
+
+
+class _Grid:
+    """uniform grid of segments and boxes for the free-place search"""
+
+    def __init__(self, cell=100.0):
+        self.cell, self.segs, self.boxes = cell, {}, {}
+
+    def _cells(self, x0, y0, x1, y1):
+        c = self.cell
+        for i in range(int(math.floor(x0 / c)), int(math.floor(x1 / c)) + 1):
+            for j in range(int(math.floor(y0 / c)), int(math.floor(y1 / c)) + 1):
+                yield i, j
+
+    def add_seg(self, a, b):
+        for k in self._cells(min(a[0], b[0]), min(a[1], b[1]), max(a[0], b[0]), max(a[1], b[1])):
+            self.segs.setdefault(k, []).append((a, b))
+
+    def add_box(self, bx):
+        for k in self._cells(*bx):
+            self.boxes.setdefault(k, []).append(bx)
+
+    def free(self, c, r):
+        for k in self._cells(c[0] - r, c[1] - r, c[0] + r, c[1] + r):
+            for a, b in self.segs.get(k, ()):
+                if _seg_dist(c, a, b) < r:
+                    return False
+            for bx in self.boxes.get(k, ()):
+                qx = min(max(c[0], bx[0]), bx[2])
+                qy = min(max(c[1], bx[1]), bx[3])
+                if math.hypot(c[0] - qx, c[1] - qy) < r:
+                    return False
+        return True
+
+
+def _seg_dist(c, a, b):
+    ax, ay = a
+    bx, by = b
+    dx, dy = bx - ax, by - ay
+    L2 = dx * dx + dy * dy
+    t = 0.0 if L2 < 1e-12 else max(0.0, min(1.0, ((c[0] - ax) * dx + (c[1] - ay) * dy) / L2))
+    return math.hypot(c[0] - (ax + t * dx), c[1] - (ay + t * dy))
+
+
+def place_slab_numbers(msp, numbers, dx, grid, panels):
+    """Slab numbers (circle + number) of one plan: at the place of the formwork plan or
+    the nearest place of the same slab where no line of the plan crosses the circle.
+    Returns the numbers that found no free place."""
+    r = SLAB_R + 7.0                                # 1.4 mm free around the circle at 1:50
+    missing = []
+    for no, (x, y) in numbers:
+        P = next((P for P in panels if P[0] < x < P[1] and P[2] < y < P[3]), None)
+        if P is not None:
+            lim = (P[0] + 12.5 + r, P[1] - 12.5 - r, P[2] + 12.5 + r, P[3] - 12.5 - r)
+        else:
+            lim = (x - 150, x + 150, y - 150, y + 150)
+        cand = [(x + i * 10.0, y + j * 10.0) for i in range(-int((x - lim[0]) // 10), int((lim[1] - x) // 10) + 1)
+                for j in range(-int((y - lim[2]) // 10), int((lim[3] - y) // 10) + 1)]
+        cand.sort(key=lambda q: (q[0] - x) ** 2 + (q[1] - y) ** 2)
+        c = None
+        for rr in (r, SLAB_R + 3.0, SLAB_R + 1.0):    # a smaller free margin where the plan is full
+            c = next((q for q in cand if grid.free((q[0] + dx, q[1]), rr)), None)
+            if c is not None:
+                break
+        if c is None:
+            missing.append(no)
+            continue
+        cc = (c[0] + dx, c[1])
+        msp.add_circle(cc, SLAB_R, dxfattribs={"layer": "R-TEXT"})
+        text(msp, str(no), cc, SLAB_H, layer="R-TEXT")
+        grid.add_box((cc[0] - r, cc[1] - r, cc[0] + r, cc[1] + r))
+    return missing
 
 
 # ============================================================================
@@ -405,8 +521,12 @@ def write(formwork_path, out_path, lay, plan, inp, title_extra="", P=None):
     plan written for the same layout (used as background)."""
     doc = ezdxf.readfile(formwork_path)
     X, Y = lay.X, lay.Y
-    prepare_background(doc, lay)
+    numbers = prepare_background(doc, lay)
     msp = doc.modelspace()
+    from .dxf_formwork import slab_panels, snap, YB, T_B17_Y
+    panels = slab_panels(X, Y, lay.hall_y, lay.room_x, snap(lay.FY(T_B17_Y)[0], YB))
+    bg_segs, bg_boxes = _geometry(list(doc.blocks.get(BG_BLOCK)))
+    missing = set()
     ext = ezbbox.extents(doc.blocks.get(BG_BLOCK), fast=True)
     left = ext.extmin.x
     tab_x = X["7"] + 380
@@ -463,6 +583,13 @@ def write(formwork_path, out_path, lay, plan, inp, title_extra="", P=None):
                                           ("top", plan.top, plan.mesh_top, total)):
         before = {id(e) for e in msp}
         draw_face(pitch, face, reps, zones, slab_total)
+        grid = _Grid()
+        segs, boxes = _geometry([e for e in msp if id(e) not in before and e.dxftype() != "INSERT"])
+        for a, b in segs + [((a[0] + pitch, a[1]), (b[0] + pitch, b[1])) for a, b in bg_segs]:
+            grid.add_seg(a, b)
+        for bx in boxes + [(b[0] + pitch, b[1], b[2] + pitch, b[3]) for b in bg_boxes]:
+            grid.add_box(bx)
+        missing |= set(place_slab_numbers(msp, numbers, pitch, grid, panels))
         box = sheets_.content_box([e for e in msp if id(e) not in before])
         name = "Bottom" if face == "bottom" else "Top"
         sht = sheets_.add_sheet(doc, msp, box, 50, inp,
@@ -478,6 +605,7 @@ def write(formwork_path, out_path, lay, plan, inp, title_extra="", P=None):
         y_top = min(sh_.rect[1] for sh_ in sheets) - 500
         details_, _ = details.place(msp, P, sheets[0].rect[0], y_top, pitch + sheets[-1].rect[2] - sheets[-1].rect[0])
     plan.details = details_
+    plan.missing_numbers = sorted(missing)          # slab numbers without a free place in a plan
     try:
         e = ezbbox.extents(msp, fast=True)
         doc.header["$EXTMIN"] = e.extmin

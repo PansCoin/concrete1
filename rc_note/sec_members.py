@@ -112,9 +112,14 @@ def section_V(nt, P_, hcm):
     okd = deflection_ld(nt, L.v * 10, d, r["rho"], r["rho_prov"], r["As"], r["As_prov"], mat, 1.0,
                         gfl.v, qk.v, 1.35 * gfl.v, 1.5 * qk.v)
     nt.h2("7. Detailing")
-    nt.bullet("Distribution bars Φ8/20 cm in every step and along the waist; top bars Φ8/20 cm at both "
-              "ends (0.2·l), bottom bars bent at the kink between flight and landing are replaced by "
-              "two crossing bars anchored with l_bd.")
+    nt.bullet(f"Bottom bars {r['bars']} of the flight and of the landing: at the kink between them (re-entrant "
+              "corner) no bar is bent - the bars of the flight run on straight into the top of the landing "
+              "and the bars of the landing into the top of the flight, each anchored with l_bd = 40Φ beyond "
+              "the crossing. At the lower end the bars of the flight are anchored in the floor slab, at the "
+              "wall the bars of the landing run into the wall.")
+    nt.bullet("Top bars Φ8/20 cm at both supports over 0.2·l; distribution bars Φ8/20 cm on the main bars.")
+    nt.bullet("Steps (manual, Figure 7.4): a bent bar Φ8/30 cm along the riser and the tread of every step, "
+              "anchored in the waist, and one bar Φ8 at every nosing.")
     P_.res["V"] = dict(h=hcm, n=n, hst=hst.v, bst=bst.v, bars=r["bars"],
                        design=dict(r=r, lfl=lfl.v, lla=lla.v, alpha=alpha.v),
                        summary=[("Stairs", f"h = {fmt(hcm)} cm, {n} risers {fmt(hst.v)}/{fmt(bst.v)} cm, {r['bars']}")])

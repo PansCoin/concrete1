@@ -12,7 +12,7 @@ given in the title):
   * beam on axis E (3-4) - bending and torsion (section VII)   M 1:25
   * beam B5 - continuous beam over B15 (section VIII)          M 1:25
   * column C10 - two storeys, sections 0-0 and 1-1 (IX)       M 1:25
-  * frame on axis 2 - beam B15, columns C1, C7, C12 (X)        M 1:25
+  * frame on axis 2 - beam B15, columns as outlines (X)        M 1:25
   * column C7 of the frame - two storeys, sections (X)          M 1:25
   * pad footing under C7 - plan and section (XI)               M 1:25
   * stairs - flight and landing (V)                            M 1:10
@@ -1206,7 +1206,7 @@ def frame_axis2(P):
     hf = P.res.get("II", {}).get("hf", 12)
     yC = G.Y["C"]
     tA, tC = inp.C1_h, inp.C7_h
-    el = Element("FR", "Frame on axis 2 - beam B15 and column C7 (first storey)", 25)
+    el = Element("FR", "Frame on axis 2 - beam B15", 25)
     phiw = shr["phi_w"]
     xA, xC, xE = tA / 2, tA / 2 + yC, tA / 2 + 2 * yC
     L = xE + tA / 2
@@ -1238,26 +1238,12 @@ def frame_axis2(P):
             dict(bar=b3, level="top", x0=L - C - b3.segs[1], x1=L - C, legs=(0, l3), n=r3["n"], silent=True),
             dict(bar=b4, level="top", x0=C, x1=C + b4.segs[1], legs=(15.0, 0), n=2, tag=0.45),
             dict(bar=b4, level="top", x0=L - C - b4.segs[1], x1=L - C, legs=(0, 15.0), n=2, silent=True)]
-    # columns (first storey): bars with a foot in the footing, lap above the slab
+    # columns: outlines only - the frame column C7 is detailed (once) on its own drawing,
+    # C1 and C12 are part of the static model of the frame only
     Hf = P.res.get("XI", {}).get("H", 80)
     Lf = P.res.get("XI", {}).get("L", 300)
     below = inp.hb - hB                      # soffit of the beam above the top of the footing
     cols = {}
-    for tag, (txt, As, phi, n) in D["cols"].items():
-        lapc = lap_length(phi)
-        foot = 30.0
-        vert = (Hf - C_FOOT - 3) + below + hB + lapc
-        cb = el.bar(phi, [foot, vert], f"column {tag}")
-        cw = 10 if phi >= 25 else 8
-        bcol, hcol = (inp.C7_b, inp.C7_h) if tag == "C7" else (inp.C1_b, inp.C1_h)
-        c7 = D.get("c7") if tag == "C7" else None
-        if c7:
-            cw = c7["phiw"]
-        ck = el.bar(cw, link_segs(hcol - 2 * C, bcol - 2 * C, cw), f"links {tag}", "link")
-        cols[tag] = dict(bar=cb, link=ck, phi=phi, n=n, phiw=cw, b=bcol, h=hcol, lap=lapc,
-                         s=c7["s"] if c7 else min(20 * phi / 10, bcol, 40.0),
-                         s_c=c7["s_c"] if c7 else None,
-                         lay=(c7["lay"][1]["n_long"], c7["lay"][1]["n_mid"]) if c7 else None)
     sp = BeamSpec(el, bw, hB, hf,
                   supports=[dict(x=xA, t=tA, kind="col", label="C1 (axis A)", below=below),
                             dict(x=xC, t=tC, kind="col", label="C7 (axis C)", below=below + Hf),
@@ -1281,6 +1267,11 @@ def draw_frame(sh, el, sp, fd):
     y_ft = -below                                  # top of the footings
     for tag, x in fd["xs"].items():
         c = fd["cols"].get(tag)
+        if c is None and tag == "C7":              # reinforcement on the drawing of the column
+            sh.rect(x - Lf / 2, y_ft - Hf, x + Lf / 2, y_ft)
+            sh.rect(x - Lf / 2 - 10, y_ft - Hf - 10, x + Lf / 2 + 10, y_ft - Hf, "D-HIDDEN")
+            sh.text("C7 and its footing: reinforcement on their own drawings", (x, y_ft - Hf / 2), 0.8 * sh.h)
+            continue
         if c is None:                              # C1, C12: not designed - outline only
             sh.line((x - 60, y_ft), (x + 60, y_ft))
             sh.text(f"{tag} - outline only (not designed)", (x, y_ft - 2.0 * sh.h), 0.8 * sh.h)
@@ -1464,109 +1455,195 @@ def stairs(P):
 
 
 def draw_stairs(sh, el, d):
+    """Flight and landing (simply supported between the floor slab and the wall of the
+    core), detailed as in the manual (Figure 7.4):
+      1  bottom bars of the flight: anchored in the floor slab, straight past the kink
+         into the top of the landing (crossing bars at the re-entrant corner, l_bd)
+      2  bottom bars of the landing: into the wall, straight past the kink into the top
+         of the flight (l_bd)
+      3, 4  top bars at the two supports (0.2·l)
+      5  distribution bars Φ8/20 on the main bars
+      6  bent bar in every step (Φ8/30 across the width), 7  one bar Φ8 at every nosing"""
     h, n, hst, bst = d["h"], d["n"], d["hst"], d["bst"]
     lfl, lla, Hfl = d["lfl"], d["lla"], d["Hfl"]
+    phi, s, W = d["phi"], d["s"], d["d"]
     a = math.radians(d["alpha"])
-    ta, ca = math.tan(a), math.cos(a)
+    ta, ca, sa = math.tan(a), math.cos(a), math.sin(a)
     hv = h / ca                                   # vertical thickness of the waist
+    wall = lfl + lla                              # face of the wall of the core
+    L_eff = lfl + lla
+    lbd = lap_length(phi)                         # anchorage beyond the crossing (40Φ)
+    cb = C + phi / 20                             # axis of the bottom bars from the face
+    ct = C + 0.4                                  # axis of the Φ8 bars from the face
     # ---------------------------------------------------------------- concrete
-    pts = [(-60, 0), (0, 0)]
-    for i in range(n - 1):
-        pts += [(i * bst, (i + 1) * hst), ((i + 1) * bst, (i + 1) * hst)]
-    pts += [(lfl, Hfl), (lfl + lla, Hfl)]
-    sh.pline(pts)
+    x_soff = (hv - h) / ta                        # the soffit of the waist leaves the floor slab
     xk = (Hfl - h + hv) / ta                      # kink of the soffit (flight / landing)
-    sh.pline([(-60, -h), (-hv / ta + 0, -h) if False else (0 - 0, -h), (0, -hv), (xk, Hfl - h),
-              (lfl + lla, Hfl - h)])
-    wall = lfl + lla
+    top = [(-80, 0), (0, 0)]
+    for i in range(n - 1):
+        top += [(i * bst, (i + 1) * hst), ((i + 1) * bst, (i + 1) * hst)]
+    top += [(lfl, Hfl), (wall, Hfl)]
+    sh.pline(top)
+    sh.pline([(-80, -h), (x_soff, -h), (xk, Hfl - h), (wall, Hfl - h)])
+    sh.line((-80, 0), (-80, -h), "D-HIDDEN")      # floor slab, broken off
     sh.rect(wall, Hfl - h - 60, wall + 25, Hfl + 60)
-    sh.line((-60, 0), (-60, -h), "D-HIDDEN")
-    sh.text(f"{n - 1} steps {fmt(bst)}/{fmt(hst)}", (0.5 * lfl - 4 * sh.h, 0.5 * Hfl + 6 * sh.h), 1.2 * sh.h,
-            rot=math.degrees(a))
-    sh.text("±0.00", (-55, 1.2 * sh.h), sh.h, align=BL)
+    sh.line((wall, Hfl + 60), (wall + 25, Hfl + 60), "D-HIDDEN")
+    xt_ = 0.22 * lfl
+    sh.text(f"{n - 1} steps {fmt(bst)}/{fmt(hst)}",
+            (xt_ - sa * (hst + 7 * sh.h), xt_ * ta + ca * (hst + 7 * sh.h)), 1.2 * sh.h, rot=math.degrees(a))
+    sh.text("±0.00", (-75, 1.2 * sh.h), sh.h, align=BL)
     sh.text(f"+{Hfl / 100:.2f}", (lfl + 10, Hfl + 1.2 * sh.h), sh.h, align=BL)
-    # ---------------------------------------------------------------- bars
-    cb = C + d["phi"] / 20
-    s = d["s"]
-    nmain = n_bars(d["d"], s)
-    lbd = ceil5(40 * d["phi"] / 10)
-    # pos 1: bottom of the flight, continued into the landing (crossing at the kink)
-    y_off = -hv + cb / ca                         # line y = x·tanα + y_off
-    x_s = -40.0
-    y_s = x_s * ta + y_off
-    if y_s < -h + cb:                             # stay in the floor slab
-        x_s = (-h + cb - y_off) / ta
-        y_s = -h + cb
-    x_e = (Hfl - cb - y_off) / ta                 # reaches the top of the landing
-    b1 = el.bar(d["phi"], [math.hypot(x_e - x_s, (x_e - x_s) * ta)], "bottom of the flight")
+    sh.text("wall of the core", (wall + 12.5, Hfl + 60 + 2.0 * sh.h), 0.8 * sh.h)
+    # ---------------------------------------------------------------- bar lines
+    yb1 = lambda x: x * ta - hv + cb / ca         # bottom bars of the flight
+    yt1 = lambda x: x * ta - ct / ca              # top layer of the flight (under the steps)
+    y2 = Hfl - h + cb                             # bottom bars of the landing
+    # pos 1: floor slab -> flight -> top of the landing
+    la1 = ceil5(max(15 * phi / 10, 25.0))
+    x1 = (-h + cb + hv - cb / ca) / ta            # meets the bottom layer of the floor slab
+    xc = (y2 + hv - cb / ca) / ta                 # crossing with pos 2
+    x2 = (Hfl - ct + hv - cb / ca) / ta           # reaches the top of the landing
+    la2 = ceil5(max(lbd - (x2 - xc) / ca, 10 * phi / 10))
+    p1 = [(x1 - la1, -h + cb), (x1, -h + cb), (x2, Hfl - ct), (x2 + la2, Hfl - ct)]
+    b1 = el.bar(phi, [la1, (x2 - x1) / ca, la2], "bottom of the flight, into the top of the landing")
+    nmain = n_bars(W, s)
     b1.n = nmain
-    sh.line((x_s, y_s), (x_e, x_e * ta + y_off), "D-BARS")
-    # pos 2: bottom of the landing, continued into the flight
-    y2 = Hfl - h + cb
-    x2s = wall + 25 - C
-    x2e = (y2 - (hst * 0.0) + cb / ca - 0) / ta    # top surface of the waist ~ y = x·tanα
-    x2e = min(x2e, xk - lbd)
-    b2 = el.bar(d["phi"], [x2s - x2e], "bottom of the landing")
+    sh.pline(p1, "D-BARS")
+    # pos 2: wall -> landing -> past the kink into the top of the flight
+    xw = wall + 25 - C
+    xt = (y2 + ct / ca) / ta                      # meets the top layer of the flight
+    la3 = ceil5(max(lbd - (xc - xt), 10 * phi / 10))
+    p2 = [(xw, y2), (xt, y2), (xt - la3 * ca, y2 - la3 * sa)]
+    b2 = el.bar(phi, [xw - xt, la3], "bottom of the landing, into the top of the flight")
     b2.n = nmain
-    sh.line((x2e, y2), (x2s, y2), "D-BARS")
-    # pos 3: top bars at the lower support, pos 4: at the wall
-    Lt = ceil5(0.25 * (lfl + lla))
-    p3s = (-50.0, -cb)
-    p3e = (Lt, Lt * ta - cb / ca)
-    b3 = el.bar(8, [50.0, math.hypot(p3e[0], p3e[1] + cb)], "top at the lower support")
-    b3.n = n_bars(d["d"], 20.0)
-    sh.pline([p3s, (0, -cb), p3e], "D-BARS")
-    y4 = Hfl - cb
-    b4 = el.bar(8, [15.0, (25 - C) + Lt], "top at the wall")
-    b4.n = n_bars(d["d"], 20.0)
-    sh.pline([(wall + 25 - C, y4 - 15), (wall + 25 - C, y4), (wall - Lt, y4)], "D-BARS")
-    # pos 5: distribution bars Φ8/20 (dots)
-    b5 = el.bar(8, [d["d"] - 2 * C], "distribution bars")
+    sh.pline(p2, "D-BARS")
+    # pos 3: top bars at the lower support, pos 4: at the wall (0.2·l)
+    Lt = ceil5(0.2 * L_eff)
+    lb8 = ceil5(lap_length(8))
+    x3 = (-ct + ct / ca) / ta                     # top layer of the slab meets that of the flight
+    p3 = [(x3 - lb8, -ct), (x3, -ct), (x3 + Lt, yt1(x3 + Lt))]
+    b3 = el.bar(8, [lb8, Lt / ca], "top at the lower support")
+    b3.n = n_bars(W, 20.0)
+    sh.pline(p3, "D-BARS")
+    y4 = Hfl - ct
+    p4 = [(xw, y4 - 15), (xw, y4), (wall - Lt, y4)]
+    b4 = el.bar(8, [15.0, xw - (wall - Lt)], "top at the wall")
+    b4.n = n_bars(W, 20.0)
+    sh.pline(p4, "D-BARS")
+    # pos 5: distribution bars Φ8/20 on the main bars (dots)
+    b5 = el.bar(8, [W - 2 * C], "distribution bars")
     cnt = 0
-    for x in [x_s + 10 + i * 20 * ca for i in range(int((x_e - x_s - 20) * 1 / (20 * ca)) + 1)]:
-        sh.dot((x, x * ta + y_off + 0.9), 8)
+    k = int((xc - x1 - 20) / (20 * ca))
+    for i in range(k + 1):
+        x = x1 + 10 * ca + i * 20 * ca
+        sh.dot((x, yb1(x) + (phi / 20 + 0.45) / ca), 8)
         cnt += 1
-    for x in [x2s - 10 - i * 20 for i in range(int((x2s - x2e - 20) / 20) + 1)]:
-        sh.dot((x, y2 + 0.9), 8)
+    k = int((xw - xc - 20) / 20)
+    for i in range(k + 1):
+        sh.dot((xw - 10 - i * 20, y2 + phi / 20 + 0.45), 8)
         cnt += 1
     b5.n = cnt
-    sh.bubble(b1.pos, (0.45 * lfl, 0.45 * lfl * ta + y_off - 4 * sh.h), (0.45 * lfl, 0.45 * lfl * ta + y_off))
-    sh.bubble(b2.pos, (wall - 0.4 * lla, y2 - 4 * sh.h), (wall - 0.4 * lla, y2))
-    sh.bubble(b3.pos, (0.5 * Lt, 0.5 * Lt * ta + 6 * sh.h), (0.5 * Lt, 0.5 * Lt * ta - cb / ca))
-    sh.bubble(b4.pos, (wall - 0.5 * Lt, y4 + 4 * sh.h), (wall - 0.5 * Lt, y4))
-    sh.bubble(b5.pos, (x_s + 30, (x_s + 30) * ta + y_off - 7 * sh.h), (x_s + 30, (x_s + 30) * ta + y_off))
+    # pos 6: bent bar in every step, pos 7: bar at the nosing
+    n_st = n_bars(W, 30.0)
+    b6 = b7 = None
+    for i in range(n - 1):
+        xr = i * bst + ct                         # along the riser
+        yt = (i + 1) * hst - ct                   # under the tread
+        y_in = xr * ta - 6.0                      # into the waist
+        xe = (yt + 6.0 / ca) / ta                 # tread leg into the waist
+        b6 = el.bar(8, [yt - y_in, xe - xr], "bent bar in every step")
+        sh.pline([(xr, y_in), (xr, yt), (xe, yt)], "D-BARS")
+        sh.dot((xr + 0.9, yt - 0.9), 8)
+        b7 = el.bar(8, [W - 2 * C], "bar at the nosing")
+    if b6 is not None:
+        b6.n = n_st * (n - 1)
+        if b7 is b5:                              # same bar as the distribution bars
+            b5.n += n - 1
+            b7 = None
+        else:
+            b7.n = n - 1
+    # ---------------------------------------------------------------- position numbers
+    # (bars under the flight: leaders downwards, bars in the steps: leaders upwards)
+    xm = 0.30 * lfl
+    sh.bubble(b1.pos, (xm + 3 * sh.h, yb1(xm) - 9 * sh.h), (xm, yb1(xm)))
+    xd = x1 + 10 * ca + 5 * 20 * ca
+    sh.bubble(b5.pos, (xd + 3 * sh.h, yb1(xd) - 9 * sh.h), (xd, yb1(xd) + 1.0))
+    sh.bubble(b2.pos, (wall - 0.4 * lla, y2 - 6 * sh.h), (wall - 0.4 * lla, y2))
+    sh.bubble(b4.pos, (wall - 0.5 * Lt, y4 + 6 * sh.h), (wall - 0.5 * Lt, y4))
+    xq = x3 + 0.75 * Lt
+    sh.bubble(b3.pos, (xq + 6 * sh.h, yt1(xq) - 9 * sh.h), (xq, yt1(xq)))
+    if b6 is not None:
+        i = min(3, n - 2)
+        xr, yt = i * bst + ct, (i + 1) * hst - ct
+        sh.bubble(b6.pos, (xr - 5 * sh.h, yt + 8 * sh.h), (xr, yt - 0.4 * hst))
+        i = min(4, n - 2)
+        xr, yt = i * bst + ct, (i + 1) * hst - ct
+        sh.bubble((b7 or b5).pos, (xr - 3 * sh.h, yt + 9 * sh.h), (xr + 0.9, yt - 0.9))
     # ---------------------------------------------------------------- dimensions
     sh.hchain([0, lfl, wall, wall + 25], -h, -h - 12 * sh.h)
-    sh.vchain([0, Hfl], wall + 25, wall + 25 + 4 * sh.h)
+    sh.vchain([0, Hfl], wall + 25, wall + 25 + 5 * sh.h)
     sh.dim((wall, Hfl - h), (wall, Hfl), (wall - 3 * sh.h, Hfl - h), vertical=True)
-    # ---------------------------------------------------------------- section across the flight
-    x0 = wall + 60 + 8 * sh.h
-    sh.text("Section 1-1", (x0 + d["d"] / 2, h + 5 * sh.h), 1.2 * sh.h)
-    sh.rect(x0, 0, x0 + d["d"], h)
+    sh.text(f"{b1.pos} and {b2.pos} cross at the kink, each anchored l_bd ≥ {fmt(lbd)} cm "
+            f"beyond the crossing", (xc + 4 * sh.h, Hfl - h - 7 * sh.h), 0.8 * sh.h, align=ML)
+    # cut 1-1 across the flight (perpendicular to the waist)
+    xs1 = 0.62 * lfl
+    nx_, ny_ = -sa, ca
+    p0 = (xs1, xs1 * ta - hv)                     # on the soffit
+    t_lo, t_hi = -12.0, (hv + hst) * ca + 12.0
+    q_lo = (p0[0] + nx_ * t_lo, p0[1] + ny_ * t_lo)
+    q_hi = (p0[0] + nx_ * t_hi, p0[1] + ny_ * t_hi)
+    sh.line(q_lo, q_hi, "D-AXIS")
+    for q, sg in ((q_lo, -1), (q_hi, 1)):
+        sh.line(q, (q[0] - ny_ * 0 + nx_ * sg * 0, q[1]), "D-TEXT")
+        sh.text("1", (q[0] + ca * 1.6 * sh.h + nx_ * sg * 1.2 * sh.h, q[1] + sa * 1.6 * sh.h + ny_ * sg * 1.2 * sh.h),
+                sh.h)
+    # ---------------------------------------------------------------- section 1-1 across the flight
+    x0 = wall + 60 + 10 * sh.h
+    sec_y = Hfl * 0.25
+    sh.text("Section 1-1", (x0 + W / 2, sec_y + h + 5 * sh.h), 1.2 * sh.h)
+    sh.rect(x0, sec_y, x0 + W, sec_y + h)
     for i in range(nmain):
-        sh.dot((x0 + 5 + i * (d["d"] - 10) / max(nmain - 1, 1), cb), d["phi"])
-    sh.line((x0 + C, cb + d["phi"] / 20 + 0.8), (x0 + d["d"] - C, cb + d["phi"] / 20 + 0.8), "D-BARS")
-    sh.bubble(b1.pos, (x0 + d["d"] + 4 * sh.h, cb), (x0 + d["d"] - 5, cb))
-    sh.text(f"{nmain}Φ{d['phi']}/{fmt(s)}", (x0 + d["d"] + 6 * sh.h, cb), sh.h, align=ML)
-    sh.bubble(b5.pos, (x0 + 0.3 * d["d"], h + 3 * sh.h), (x0 + 0.3 * d["d"], cb + 1.5))
-    sh.dim((x0, 0), (x0 + d["d"], 0), (x0, -4 * sh.h))
-    sh.dim((x0, 0), (x0, h), (x0 - 4 * sh.h, 0), vertical=True)
+        sh.dot((x0 + 5 + i * (W - 10) / max(nmain - 1, 1), sec_y + cb), phi)
+    yd5 = sec_y + cb + phi / 20 + 0.45
+    sh.line((x0 + C, yd5), (x0 + W - C, yd5), "D-BARS")
+    sh.bubble(b1.pos, (x0 + W + 4 * sh.h, sec_y + cb), (x0 + W - 5, sec_y + cb))
+    sh.text(f"{nmain}Φ{phi}/{fmt(s)}", (x0 + W + 6 * sh.h, sec_y + cb), sh.h, align=ML)
+    sh.bubble(b5.pos, (x0 + 0.3 * W, sec_y + h + 2.6 * sh.h), (x0 + 0.3 * W, yd5))
+    sh.dim((x0, sec_y), (x0 + W, sec_y), (x0, sec_y - 4 * sh.h))
+    sh.dim((x0, sec_y), (x0, sec_y + h), (x0 - 4 * sh.h, sec_y), vertical=True)
     # ---------------------------------------------------------------- bars drawn separately
-    y = -h - 40 * sh.h
-    ang = math.degrees(a)
-    L1 = b1.segs[0]
-    draw_shape(sh, b1, [(0, y), (L1 * ca, y + L1 * math.sin(a))], label_at=(L1 * ca / 2, y - 4 * sh.h))
-    draw_shape(sh, b2, [(L1 * ca + 30, y), (L1 * ca + 30 + b2.segs[0], y)],
-               label_at=(L1 * ca + 30 + b2.segs[0] / 2, y - 4 * sh.h))
-    y -= 22 * sh.h
-    draw_shape(sh, b3, [(0, y), (50, y), (50 + b3.segs[1] * ca, y + b3.segs[1] * math.sin(a))],
-               label_at=(60, y - 4 * sh.h))
-    draw_shape(sh, b4, [(L1 * ca + 30, y - 15), (L1 * ca + 30, y), (L1 * ca + 30 + b4.segs[1], y)],
-               label_at=(L1 * ca + 30 + b4.segs[1] / 2, y - 6 * sh.h))
-    y -= 22 * sh.h
-    draw_shape(sh, b5, [(0, y), (b5.segs[0], y)], label_at=(b5.segs[0] / 2, y - 4 * sh.h))
-    _ = ang
-    schedule(sh, el, x0, -h - 20 * sh.h)
+    shapes = [
+        (b1, [(0, 0), (la1, 0), (la1 + (x2 - x1), (x2 - x1) * ta), (la1 + (x2 - x1) + la2, (x2 - x1) * ta)]),
+        (b2, [(0, 0), (la3 * ca, la3 * sa), (la3 * ca + (xw - xt), la3 * sa)]),
+        (b3, [(0, 0), (lb8, 0), (lb8 + Lt, Lt * ta)]),
+        (b4, [(0, -15), (0, 0), (b4.segs[1], 0)]),
+    ]
+    if b6 is not None:
+        shapes.append((b6, [(0, 0), (0, b6.segs[0]), (b6.segs[1], b6.segs[0])]))
+    shapes += [(b5, [(0, 0), (b5.segs[0], 0)])]
+    if b7 is not None:
+        shapes.append((b7, [(0, 0), (b7.segs[0], 0)]))
+    gap = 14 * sh.h
+    x_left = -80.0
+    row_top = -h - 26 * sh.h
+    cur_x, row_h = x_left, 0.0
+    max_w = wall + 25 + 60 + 10 * sh.h + W - x_left
+    k_shape = 0.5                                 # bars drawn separately at half the scale
+    shapes = [(b, [(k_shape * x_, k_shape * y_) for x_, y_ in pts]) for b, pts in shapes]
+    for b, pts in shapes:
+        xs_ = [p[0] for p in pts]
+        ys_ = [p[1] for p in pts]
+        w_, h_ = max(xs_) - min(xs_), max(ys_) - min(ys_)
+        if cur_x > x_left and cur_x + w_ > x_left + max_w:
+            cur_x = x_left
+            row_top -= row_h + gap
+            row_h = 0.0
+        ox, oy = cur_x - min(xs_), row_top - max(ys_)
+        segs = b.segs if b is not b2 else [b2.segs[1], b2.segs[0]]
+        draw_shape(sh, b, [(ox + x_, oy + y_) for x_, y_ in pts], segs=segs,
+                   label_at=(cur_x + max(w_ / 2, 6 * sh.h), oy + min(ys_) - 2.6 * sh.h))
+        cur_x += w_ + gap + 10 * sh.h
+        row_h = max(row_h, h_ + 4 * sh.h)
+    schedule(sh, el, x0, sec_y - 14 * sh.h)
 
 
 # ============================================================================
