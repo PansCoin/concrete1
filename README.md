@@ -12,7 +12,7 @@ M / V / N diagrams, tables and checks.
 
     pip install python-docx matplotlib numpy ezdxf pypdf
 
-LibreOffice is needed only for the PDF printout of the note (`soffice` on the path).
+LibreOffice (Writer and Math - Math draws the equations) is needed only for the PDF printout of the note (`soffice` on the path).
 
 ## Run
 

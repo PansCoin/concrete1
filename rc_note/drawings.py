@@ -111,11 +111,18 @@ def note_section(nt, P, out):
     from .rebar import Schedule, MASS
     plan = out["plan"]
     nt.h1("XII. Drawings and bar schedules")
-    nt.p("The following drawings were produced from the results of the calculations (DXF, drawing unit = 1 cm; "
-         "formwork and slabs 1:50, elements 1:25, stairs 1:10):")
-    for f in out["files"]:
-        if f.endswith(".dxf"):
-            nt.bullet(os.path.basename(f))
+    nt.p("The drawings were produced from the results of the calculations. Every drawing is on its own "
+         "sheet (frame and title block) and on its own page of the printout Project_<name>.pdf, after "
+         "this note; the DXF files (drawing unit = 1 cm) are listed with them.")
+    rows = []
+    for k, (doc_, shs) in enumerate(out.get("sheets", [])):
+        for sh in shs:
+            rows.append((str(len(rows) + 1), sh.title, f"1:{sh.scale}", sh.paper))
+    files = [os.path.basename(f) for f in out["files"] if f.endswith(".dxf")]
+    if rows:
+        fmap = [files[0], files[1], files[1]] + files[2:]
+        rows = [r + (fmap[i] if i < len(fmap) else "",) for i, r in enumerate(rows)]
+        nt.table(["No.", "Drawing", "Scale", "Paper", "DXF file"], rows, caption="List of drawings")
     nt.p("The slabs of the hall are reinforced with the welded wire meshes adopted in section II (part 8); "
          "the bar diameters and spacings of the other slabs are the ones adopted in sections I, III, IV and VII. "
          "Distribution bars, top bars at the end supports and along the edges parallel to the span and the "
@@ -132,16 +139,9 @@ def note_section(nt, P, out):
              caption="Bar schedule of the slabs (BR/DR bottom, TR/AR top)")
     if plan.details:
         nt.h2("Reinforcement drawings of the elements")
-        nt.p("Every element designed in the note has its own reinforcement drawing (a separate DXF file with "
-             "elevation, cross-sections, bars drawn separately, bar schedule and title block); the same drawings "
-             "are also placed under the slab plans in the slab reinforcement file: " +
-             "; ".join(el.title for el in plan.details) + ".")
-        for el, f, p, *_ in out.get("elements", []):
-            if p and os.path.exists(p):
-                from PIL import Image
-                with Image.open(p) as im:
-                    ar = im.height / im.width
-                nt.fig(p, f"{el.title} - reinforcement drawing ({os.path.basename(f)})", min(16.0, 21.0 / ar))
+        nt.p("Every element designed in the note has its own reinforcement drawing (elevation, "
+             "cross-sections, bars drawn separately, bar schedule): " +
+             "; ".join(el.title for el in plan.details) + ". The drawings follow this note on separate pages.")
         rows = []
         for el in plan.details:
             for b in el.bars:

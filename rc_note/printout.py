@@ -23,6 +23,7 @@ import tempfile
 import time
 
 A3 = (420.0, 297.0)
+MISSING = []
 
 UNO_SCRIPT = r'''
 import sys, time, uno
@@ -73,6 +74,12 @@ def note_to_pdf(docx_path, pdf_path, timeout=300):
     Returns the PDF path or None if LibreOffice is not available."""
     soffice = shutil.which("soffice") or shutil.which("libreoffice")
     if not soffice:
+        return None
+    prog = os.path.dirname(os.path.realpath(soffice))
+    if not any(os.path.exists(os.path.join(d, n)) for d in (prog, "/usr/lib/libreoffice/program")
+               for n in ("libsmlo.so", "smath", "smath.exe", "libsmlo.dylib")):
+        MISSING.append("LibreOffice Math is not installed - the equations of the note would be empty "
+                       "(install it, e.g. 'apt install libreoffice-math')")
         return None
     work = tempfile.mkdtemp(prefix="rcnote_pdf_")
     profile = "file://" + os.path.join(work, "profile")
@@ -145,9 +152,11 @@ def make(P, note_docx, out_dir, name):
     if not getattr(P, "drawings", None) or not P.drawings.get("sheets"):
         return []
     work = tempfile.mkdtemp(prefix="rcnote_print_")
+    MISSING.clear()
     note_pdf = note_to_pdf(note_docx, os.path.join(work, "note.pdf"))
     if note_pdf is None:
-        P.warn.append("PDF: LibreOffice not found - the PDF contains only the drawings")
+        P.warn.append("PDF: " + (MISSING[0] if MISSING else "LibreOffice not found") +
+                      " - the PDF contains only the drawings")
     files = []
     for suffix, fit in (("", None), ("_A3", A3)):
         dpdf = drawings_pdf(P.drawings["sheets"], os.path.join(work, f"drawings{suffix}.pdf"), fit=fit)
