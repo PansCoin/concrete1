@@ -70,41 +70,40 @@ def beam_depths(P):
 
 
 def make(P, out_dir, name, png=False, template=TEMPLATE):
-    """Write the drawings. Returns dict(files, plan, layout, report)."""
-    from . import dxf_formwork, dxf_rebar, rebar
+    """Write the drawings (every drawing on a sheet with frame and title block).
+    Returns dict(files, plan, layout, report, elements, sheets) - sheets: [(doc, [Sheet])]
+    in the order of the printout."""
+    from . import dxf_formwork, dxf_rebar, rebar, details, sheets as sheets_
     inp = P.inp
     lay = dxf_formwork.redraw(template, inp.a, inp.b, inp.c, inp.d, inp.hb / 100.0,
                               hf_by_slab=rebar.slab_thickness(P), size_rows=size_rows(P),
                               beam_depths=beam_depths(P))
     f_form = os.path.join(out_dir, f"Formwork_{name}.dxf")
-    lay.doc.saveas(f_form)
+    lay.doc.saveas(f_form)                       # background of the reinforcement plans (no sheet yet)
     plan = rebar.build(P, lay)
     f_reb = os.path.join(out_dir, f"Slab_reinforcement_{name}.dxf")
     title = f"{inp.student}  {inp.faculty_no}".strip()
-    doc, pitch = dxf_rebar.write(f_form, f_reb, lay, plan, inp, title_extra=title, P=P)
+    doc, pitch, reb_sheets = dxf_rebar.write(f_form, f_reb, lay, plan, inp, title_extra=title, P=P)
+    # the formwork plan on its sheet
+    fmsp = lay.doc.modelspace()
+    form_sheet = sheets_.add_sheet(lay.doc, fmsp, sheets_.content_box(fmsp), 50, inp,
+                                   f"Formwork plan of the slab at level +{lay.level:.2f}")
+    lay.doc.saveas(f_form)
     files = [f_form, f_reb]
-    from . import details
     elems = details.export(P, out_dir, name, png=png, png_dir=None if png else os.path.join(P.workdir, "elements"))
-    files += [f for _, f, _ in elems]
+    files += [e[1] for e in elems]
     if png:
-        X, Y = lay.X, lay.Y
-        box = (X["1"] - 350, Y["A"] - inp.d - 350, X["7"] + 1300, Y["E"] + 650)
         p1 = f_form[:-4] + ".png"
-        dxf_formwork.render_png(lay.doc, p1, box=box)
+        dxf_formwork.render_png(lay.doc, p1, box=form_sheet.rect)
         p2 = f_reb[:-4] + "_bottom.png"
         p3 = f_reb[:-4] + "_top.png"
-        dxf_formwork.render_png(doc, p2, box=box)
-        dxf_formwork.render_png(doc, p3, box=(box[0] + pitch, box[1], box[2] + pitch, box[3]))
+        dxf_formwork.render_png(doc, p2, box=reb_sheets[0].rect)
+        dxf_formwork.render_png(doc, p3, box=reb_sheets[1].rect)
         files += [p1, p2, p3]
-        if plan.details:
-            from ezdxf import bbox as ezbbox
-            e = ezbbox.extents(doc.modelspace(), fast=True)
-            p4 = f_reb[:-4] + "_details.png"
-            dxf_formwork.render_png(doc, p4, box=(box[0], e.extmin.y - 50, box[0] + 2 * pitch,
-                                                  Y["A"] - inp.d - 500), width_px=4000)
-            files.append(p4)
-        files += [p for _, _, p in elems if p]
-    return dict(files=files, plan=plan, layout=lay, report=lay.report + lay.warnings, elements=elems)
+        files += [e[2] for e in elems if e[2]]
+    printout = [(lay.doc, [form_sheet]), (doc, reb_sheets)] + [(e[4], [e[3]]) for e in elems]
+    return dict(files=files, plan=plan, layout=lay, report=lay.report + lay.warnings, elements=elems,
+                sheets=printout)
 
 
 def note_section(nt, P, out):
@@ -137,7 +136,7 @@ def note_section(nt, P, out):
              "elevation, cross-sections, bars drawn separately, bar schedule and title block); the same drawings "
              "are also placed under the slab plans in the slab reinforcement file: " +
              "; ".join(el.title for el in plan.details) + ".")
-        for el, f, p in out.get("elements", []):
+        for el, f, p, *_ in out.get("elements", []):
             if p and os.path.exists(p):
                 from PIL import Image
                 with Image.open(p) as im:

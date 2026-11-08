@@ -14,6 +14,8 @@ class Inputs:
     student: str = ""
     faculty_no: str = ""
     date: str = ""
+    adviser: str = "prof. M. Traykova"     # title block of the drawings
+    project: str = "Office building"
     # --- assignment sheet ("Input data") -------------------------------
     a: float = 630.0      # cm
     b: float = 580.0      # cm

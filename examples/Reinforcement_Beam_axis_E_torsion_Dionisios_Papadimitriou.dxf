@@ -489,7 +489,7 @@ $SKPOLY
   9
 $TDCREATE
  40
-2461351.3841087963
+2461353.4341550926
   9
 $TDUCREATE
  40
@@ -497,7 +497,7 @@ $TDUCREATE
   9
 $TDUPDATE
  40
-2461351.3841087963
+2461353.4341550926
   9
 $TDUUPDATE
  40
@@ -549,7 +549,7 @@ $SPLINESEGS
   9
 $HANDSEED
   5
-180
+187
   9
 $SURFTAB1
  70
@@ -929,11 +929,11 @@ $PSTYLEMODE
   9
 $FINGERPRINTGUID
   2
-{7B11E00E-02F8-428A-9F0C-6E86DCF95B29}
+{19797E82-718D-4F65-9A98-020F8932FCB3}
   9
 $VERSIONGUID
   2
-{2FB5BD3D-518B-4AEE-89A0-12D692AAEF82}
+{4E8E509B-395F-4791-9BD3-4B14ED169563}
   9
 $EXTNAMES
 290
@@ -1323,9 +1323,9 @@ ISM
   0
 CLASS
   1
-LAYOUT
+ACDBPLACEHOLDER
   2
-AcDbLayout
+AcDbPlaceHolder
   3
 ObjectDBX Classes
  90
@@ -1339,9 +1339,9 @@ ObjectDBX Classes
   0
 CLASS
   1
-ACDBPLACEHOLDER
+LAYOUT
   2
-AcDbPlaceHolder
+AcDbLayout
   3
 ObjectDBX Classes
  90
@@ -1617,7 +1617,7 @@ LAYER
 100
 AcDbSymbolTable
  70
-9
+10
   0
 LAYER
   5
@@ -1837,6 +1837,30 @@ Continuous
 347
 21
   0
+LAYER
+  5
+16C
+330
+1
+100
+AcDbSymbolTableRecord
+100
+AcDbLayerTableRecord
+  2
+SHEET
+ 70
+0
+ 62
+7
+  6
+Continuous
+370
+35
+390
+13
+347
+21
+  0
 ENDTAB
   0
 TABLE
@@ -1849,7 +1873,7 @@ STYLE
 100
 AcDbSymbolTable
  70
-2
+5
   0
 STYLE
   5
@@ -1904,6 +1928,90 @@ RC_TEXT
 2.5
   3
 arial.ttf
+  4
+
+  0
+STYLE
+  5
+169
+330
+5
+100
+AcDbSymbolTableRecord
+100
+AcDbTextStyleTableRecord
+  2
+TB
+ 70
+0
+ 40
+0.0
+ 41
+1.0
+ 50
+0.0
+ 71
+0
+ 42
+2.5
+  3
+arial.ttf
+  4
+
+  0
+STYLE
+  5
+16A
+330
+5
+100
+AcDbSymbolTableRecord
+100
+AcDbTextStyleTableRecord
+  2
+TB_B
+ 70
+0
+ 40
+0.0
+ 41
+1.0
+ 50
+0.0
+ 71
+0
+ 42
+2.5
+  3
+arialbd.ttf
+  4
+
+  0
+STYLE
+  5
+16B
+330
+5
+100
+AcDbSymbolTableRecord
+100
+AcDbTextStyleTableRecord
+  2
+TB_I
+ 70
+0
+ 40
+0.0
+ 41
+1.0
+ 50
+0.0
+ 71
+0
+ 42
+2.5
+  3
+ariali.ttf
   4
 
   0
@@ -1965,7 +2073,7 @@ ACAD
   0
 APPID
   5
-17D
+184
 330
 3
 100
@@ -1979,7 +2087,7 @@ HATCHBACKGROUNDCOLOR
   0
 APPID
   5
-17E
+185
 330
 3
 100
@@ -2923,7 +3031,7 @@ AcDbMText
  71
 5
   1
-36Ø10/10
+36Φ10/10
   7
 RC_TEXT
   0
@@ -6551,7 +6659,7 @@ RC_D25
  71
 5
   1
-36Ø10/10
+36Φ10/10
 100
 AcDbAlignedDimension
  13
@@ -7341,7 +7449,7 @@ AcDbText
  40
 5.625
   1
-3Ø12
+3Φ12
   7
 RC_TEXT
  11
@@ -7575,7 +7683,7 @@ AcDbText
  40
 5.625
   1
-2Ø12
+2Φ12
   7
 RC_TEXT
  11
@@ -8049,7 +8157,7 @@ AcDbText
  40
 5.625
   1
-2x3Ø12
+2x3Φ12
   7
 RC_TEXT
  11
@@ -8505,7 +8613,7 @@ AcDbText
  40
 5.3125
   1
-36Ø10 L=150
+36Φ10 L=150
   7
 RC_TEXT
  11
@@ -8739,7 +8847,7 @@ AcDbText
  40
 5.625
   1
-3Ø12 L=435
+3Φ12 L=435
   7
 RC_TEXT
  11
@@ -8973,7 +9081,7 @@ AcDbText
  40
 5.625
   1
-2Ø12 L=435
+2Φ12 L=435
   7
 RC_TEXT
  11
@@ -9123,7 +9231,7 @@ AcDbText
  40
 5.625
   1
-6Ø12 L=405
+6Φ12 L=405
   7
 RC_TEXT
  11
@@ -9227,7 +9335,7 @@ AcDbText
  40
 5.0
   1
-Ø
+Φ
   7
 RC_TEXT
  72
@@ -9479,7 +9587,7 @@ AcDbText
  40
 5.0
   1
-Ø12
+Φ12
   7
 RC_TEXT
  72
@@ -9731,7 +9839,7 @@ AcDbText
  40
 5.0
   1
-Ø12
+Φ12
   7
 RC_TEXT
  72
@@ -9983,7 +10091,7 @@ AcDbText
  40
 5.0
   1
-Ø10
+Φ10
   7
 RC_TEXT
  72
@@ -10803,7 +10911,7 @@ AcDbText
  73
 2
   0
-LWPOLYLINE
+TEXT
   5
 168
 330
@@ -10813,79 +10921,23 @@ AcDbEntity
   8
 D-TEXT
 100
-AcDbPolyline
- 90
-4
- 70
-1
- 10
-371.5
- 20
--374.375
- 10
-721.5
- 20
--374.375
- 10
-721.5
- 20
--291.875
- 10
-371.5
- 20
--291.875
-  0
-LINE
-  5
-169
-330
-17
-100
-AcDbEntity
-  8
-D-TEXT
-100
-AcDbLine
- 10
-440.25
- 20
--374.375
- 30
-0.0
- 11
-440.25
- 21
--291.875
- 31
-0.0
-  0
-TEXT
-  5
-16A
-330
-17
-100
-AcDbEntity
-  8
-D-TEXT
-100
 AcDbText
  10
-376.5
+-6.40625
  20
--298.75
+-251.25
  30
 0.0
  40
 5.625
   1
-Project
+Concrete C25/30, reinforcing steel B500, concrete cover c_nom = 25 mm.  Mass of the reinforcement: 74.18 kg.
   7
 RC_TEXT
  11
-376.5
+-6.40625
  21
--298.75
+-251.25
  31
 0.0
 100
@@ -10893,65 +10945,7 @@ AcDbText
  73
 2
   0
-TEXT
-  5
-16B
-330
-17
-100
-AcDbEntity
-  8
-D-TEXT
-100
-AcDbText
- 10
-445.25
- 20
--298.75
- 30
-0.0
- 40
-5.625
-  1
-RC course project - reinforcement drawing
-  7
-RC_TEXT
- 11
-445.25
- 21
--298.75
- 31
-0.0
-100
-AcDbText
- 73
-2
-  0
-LINE
-  5
-16C
-330
-17
-100
-AcDbEntity
-  8
-D-TEXT
-100
-AcDbLine
- 10
-371.5
- 20
--305.625
- 30
-0.0
- 11
-721.5
- 21
--305.625
- 31
-0.0
-  0
-TEXT
+LWPOLYLINE
   5
 16D
 330
@@ -10959,33 +10953,35 @@ TEXT
 100
 AcDbEntity
   8
-D-TEXT
+SHEET
+ 62
+7
+370
+13
 100
-AcDbText
+AcDbPolyline
+ 90
+4
+ 70
+1
  10
-376.5
+-189.328125
  20
--312.5
- 30
-0.0
- 40
-5.625
-  1
-Element
-  7
-RC_TEXT
- 11
-376.5
- 21
--312.5
- 31
-0.0
-100
-AcDbText
- 73
-2
+-488.4375
+ 10
+860.671875
+ 20
+-488.4375
+ 10
+860.671875
+ 20
+254.0625
+ 10
+-189.328125
+ 20
+254.0625
   0
-TEXT
+LWPOLYLINE
   5
 16E
 330
@@ -10993,33 +10989,35 @@ TEXT
 100
 AcDbEntity
   8
-D-TEXT
+SHEET
+ 62
+7
+370
+50
 100
-AcDbText
+AcDbPolyline
+ 90
+4
+ 70
+1
  10
-445.25
+-139.328125
  20
--312.5
- 30
-0.0
- 40
-6.875000000000001
-  1
-Beam on axis E (3-4) - bending and torsion
-  7
-RC_TEXT
- 11
-445.25
- 21
--312.5
- 31
-0.0
-100
-AcDbText
- 73
-2
+-463.4375
+ 10
+835.671875
+ 20
+-463.4375
+ 10
+835.671875
+ 20
+229.0625
+ 10
+-139.328125
+ 20
+229.0625
   0
-LINE
+LWPOLYLINE
   5
 16F
 330
@@ -11027,23 +11025,35 @@ LINE
 100
 AcDbEntity
   8
-D-TEXT
+SHEET
+ 62
+7
+370
+50
 100
-AcDbLine
+AcDbPolyline
+ 90
+4
+ 70
+1
  10
-371.5
+385.671875
  20
--319.375
- 30
-0.0
- 11
-721.5
- 21
--319.375
- 31
-0.0
+-463.4375
+ 10
+835.671875
+ 20
+-463.4375
+ 10
+835.671875
+ 20
+-328.4375
+ 10
+385.671875
+ 20
+-328.4375
   0
-TEXT
+LINE
   5
 170
 330
@@ -11051,33 +11061,27 @@ TEXT
 100
 AcDbEntity
   8
-D-TEXT
+SHEET
+ 62
+7
+370
+25
 100
-AcDbText
+AcDbLine
  10
-376.5
+385.671875
  20
--326.25
+-440.9375
  30
 0.0
- 40
-5.625
-  1
-Student
-  7
-RC_TEXT
  11
-376.5
+835.671875
  21
--326.25
+-440.9375
  31
 0.0
-100
-AcDbText
- 73
-2
   0
-TEXT
+LINE
   5
 171
 330
@@ -11085,31 +11089,25 @@ TEXT
 100
 AcDbEntity
   8
-D-TEXT
+SHEET
+ 62
+7
+370
+25
 100
-AcDbText
+AcDbLine
  10
-445.25
+385.671875
  20
--326.25
+-418.4375
  30
 0.0
- 40
-5.625
-  1
-Dionisios Papadimitriou  17945  07.10.2026
-  7
-RC_TEXT
  11
-445.25
+835.671875
  21
--326.25
+-418.4375
  31
 0.0
-100
-AcDbText
- 73
-2
   0
 LINE
   5
@@ -11119,23 +11117,27 @@ LINE
 100
 AcDbEntity
   8
-D-TEXT
+SHEET
+ 62
+7
+370
+25
 100
 AcDbLine
  10
-371.5
+385.671875
  20
--333.125
+-395.9375
  30
 0.0
  11
-721.5
+835.671875
  21
--333.125
+-395.9375
  31
 0.0
   0
-TEXT
+LINE
   5
 173
 330
@@ -11143,33 +11145,27 @@ TEXT
 100
 AcDbEntity
   8
-D-TEXT
+SHEET
+ 62
+7
+370
+25
 100
-AcDbText
+AcDbLine
  10
-376.5
+385.671875
  20
--340.0
+-373.4375
  30
 0.0
- 40
-5.625
-  1
-Materials
-  7
-RC_TEXT
  11
-376.5
+835.671875
  21
--340.0
+-373.4375
  31
 0.0
-100
-AcDbText
- 73
-2
   0
-TEXT
+LINE
   5
 174
 330
@@ -11177,31 +11173,25 @@ TEXT
 100
 AcDbEntity
   8
-D-TEXT
+SHEET
+ 62
+7
+370
+25
 100
-AcDbText
+AcDbLine
  10
-445.25
+385.671875
  20
--340.0
+-350.9375
  30
 0.0
- 40
-5.625
-  1
-C25/30, B500, c_nom = 25 mm
-  7
-RC_TEXT
  11
-445.25
+835.671875
  21
--340.0
+-350.9375
  31
 0.0
-100
-AcDbText
- 73
-2
   0
 LINE
   5
@@ -11211,23 +11201,27 @@ LINE
 100
 AcDbEntity
   8
-D-TEXT
+SHEET
+ 62
+7
+370
+25
 100
 AcDbLine
  10
-371.5
+485.671875
  20
--346.875
+-463.4375
  30
 0.0
  11
-721.5
+485.671875
  21
--346.875
+-373.4375
  31
 0.0
   0
-TEXT
+LINE
   5
 176
 330
@@ -11235,31 +11229,25 @@ TEXT
 100
 AcDbEntity
   8
-D-TEXT
+SHEET
+ 62
+7
+370
+25
 100
-AcDbText
+AcDbLine
  10
-376.5
+760.671875
  20
--353.75
+-463.4375
  30
 0.0
- 40
-5.625
-  1
-Scale
-  7
-RC_TEXT
  11
-376.5
+760.671875
  21
--353.75
+-395.9375
  31
 0.0
-100
-AcDbText
- 73
-2
   0
 TEXT
   5
@@ -11269,25 +11257,29 @@ TEXT
 100
 AcDbEntity
   8
-D-TEXT
+SHEET
+ 62
+7
 100
 AcDbText
  10
-445.25
+610.671875
  20
--353.75
+-339.6875
  30
 0.0
  40
-5.625
+10.0
   1
-1:25  (drawing unit = 1 cm)
+University of Architecture, Civil Engineering and Geodesy
   7
-RC_TEXT
+TB_B
+ 72
+1
  11
-445.25
+610.671875
  21
--353.75
+-339.6875
  31
 0.0
 100
@@ -11295,7 +11287,7 @@ AcDbText
  73
 2
   0
-LINE
+TEXT
   5
 178
 330
@@ -11303,21 +11295,35 @@ LINE
 100
 AcDbEntity
   8
-D-TEXT
+SHEET
+ 62
+7
 100
-AcDbLine
+AcDbText
  10
-371.5
+610.671875
  20
--360.625
+-362.1875
  30
 0.0
+ 40
+11.25
+  1
+Department of Reinforced Concrete Structures
+  7
+TB_B
+ 72
+1
  11
-721.5
+610.671875
  21
--360.625
+-362.1875
  31
 0.0
+100
+AcDbText
+ 73
+2
   0
 TEXT
   5
@@ -11327,25 +11333,29 @@ TEXT
 100
 AcDbEntity
   8
-D-TEXT
+SHEET
+ 62
+7
 100
 AcDbText
  10
-376.5
+435.671875
  20
--367.5
+-384.6875
  30
 0.0
  40
-5.625
+10.0
   1
-Steel
+Project
   7
-RC_TEXT
+TB_B
+ 72
+1
  11
-376.5
+435.671875
  21
--367.5
+-384.6875
  31
 0.0
 100
@@ -11361,25 +11371,29 @@ TEXT
 100
 AcDbEntity
   8
-D-TEXT
+SHEET
+ 62
+7
 100
 AcDbText
  10
-445.25
+660.671875
  20
--367.5
+-384.6875
  30
 0.0
  40
-5.625
+8.75
   1
-74.18 kg
+Office building
   7
-RC_TEXT
+TB
+ 72
+1
  11
-445.25
+660.671875
  21
--367.5
+-384.6875
  31
 0.0
 100
@@ -11387,7 +11401,7 @@ AcDbText
  73
 2
   0
-LWPOLYLINE
+TEXT
   5
 17B
 330
@@ -11395,31 +11409,37 @@ LWPOLYLINE
 100
 AcDbEntity
   8
-D-TEXT
+SHEET
+ 62
+7
 100
-AcDbPolyline
- 90
-4
- 70
+AcDbText
+ 10
+435.671875
+ 20
+-407.1875
+ 30
+0.0
+ 40
+10.0
+  1
+Drawing:
+  7
+TB_B
+ 72
 1
- 10
--43.90625
- 20
--393.125
- 10
-740.25
- 20
--393.125
- 10
-740.25
- 20
-215.0
- 10
--43.90625
- 20
-215.0
+ 11
+435.671875
+ 21
+-407.1875
+ 31
+0.0
+100
+AcDbText
+ 73
+2
   0
-LWPOLYLINE
+TEXT
   5
 17C
 330
@@ -11427,29 +11447,301 @@ LWPOLYLINE
 100
 AcDbEntity
   8
-D-TEXT
+SHEET
+ 62
+7
 100
-AcDbPolyline
- 90
-4
- 70
+AcDbText
+ 10
+623.171875
+ 20
+-407.1875
+ 30
+0.0
+ 40
+8.75
+  1
+Reinforcement of the torsion beam (axis E)
+  7
+TB_I
+ 72
 1
+ 11
+623.171875
+ 21
+-407.1875
+ 31
+0.0
+100
+AcDbText
+ 73
+2
+  0
+TEXT
+  5
+17D
+330
+17
+100
+AcDbEntity
+  8
+SHEET
+ 62
+7
+100
+AcDbText
  10
--62.65625
+798.171875
  20
--411.875
+-407.1875
+ 30
+0.0
+ 40
+8.75
+  1
+S 1:25
+  7
+TB_I
+ 72
+1
+ 11
+798.171875
+ 21
+-407.1875
+ 31
+0.0
+100
+AcDbText
+ 73
+2
+  0
+TEXT
+  5
+17E
+330
+17
+100
+AcDbEntity
+  8
+SHEET
+ 62
+7
+100
+AcDbText
  10
-759.0
+435.671875
  20
--411.875
+-429.6875
+ 30
+0.0
+ 40
+10.0
+  1
+Student
+  7
+TB_B
+ 72
+1
+ 11
+435.671875
+ 21
+-429.6875
+ 31
+0.0
+100
+AcDbText
+ 73
+2
+  0
+TEXT
+  5
+17F
+330
+17
+100
+AcDbEntity
+  8
+SHEET
+ 62
+7
+100
+AcDbText
  10
-759.0
+623.171875
  20
-233.75
+-429.6875
+ 30
+0.0
+ 40
+8.75
+  1
+Dionisios Papadimitriou
+  7
+TB_I
+ 72
+1
+ 11
+623.171875
+ 21
+-429.6875
+ 31
+0.0
+100
+AcDbText
+ 73
+2
+  0
+TEXT
+  5
+180
+330
+17
+100
+AcDbEntity
+  8
+SHEET
+ 62
+7
+100
+AcDbText
  10
--62.65625
+798.171875
  20
-233.75
+-429.6875
+ 30
+0.0
+ 40
+8.75
+  1
+17945
+  7
+TB_I
+ 72
+1
+ 11
+798.171875
+ 21
+-429.6875
+ 31
+0.0
+100
+AcDbText
+ 73
+2
+  0
+TEXT
+  5
+181
+330
+17
+100
+AcDbEntity
+  8
+SHEET
+ 62
+7
+100
+AcDbText
+ 10
+435.671875
+ 20
+-452.1875
+ 30
+0.0
+ 40
+10.0
+  1
+Adviser
+  7
+TB_B
+ 72
+1
+ 11
+435.671875
+ 21
+-452.1875
+ 31
+0.0
+100
+AcDbText
+ 73
+2
+  0
+TEXT
+  5
+182
+330
+17
+100
+AcDbEntity
+  8
+SHEET
+ 62
+7
+100
+AcDbText
+ 10
+623.171875
+ 20
+-452.1875
+ 30
+0.0
+ 40
+8.75
+  1
+prof. M. Traykova
+  7
+TB_I
+ 72
+1
+ 11
+623.171875
+ 21
+-452.1875
+ 31
+0.0
+100
+AcDbText
+ 73
+2
+  0
+TEXT
+  5
+183
+330
+17
+100
+AcDbEntity
+  8
+SHEET
+ 62
+7
+100
+AcDbText
+ 10
+798.171875
+ 20
+-452.1875
+ 30
+0.0
+ 40
+7.5
+  1
+07.10.2026
+  7
+TB_I
+ 72
+1
+ 11
+798.171875
+ 21
+-452.1875
+ 31
+0.0
+100
+AcDbText
+ 73
+2
   0
 ENDSEC
   0
@@ -12441,7 +12733,7 @@ CREATED_BY_EZDXF
   3
 WRITTEN_BY_EZDXF
 350
-17F
+186
   0
 DICTIONARYVAR
   5
@@ -12453,11 +12745,11 @@ DictionaryVariables
 280
 0
   1
-1.4.4 @ 2026-11-06T09:13:07.174878+00:00
+1.4.4 @ 2026-11-08T10:25:11.610385+00:00
   0
 DICTIONARYVAR
   5
-17F
+186
 330
 2D
 100
@@ -12465,7 +12757,7 @@ DictionaryVariables
 280
 0
   1
-1.4.4 @ 2026-11-06T09:13:07.188852+00:00
+1.4.4 @ 2026-11-08T10:25:11.619613+00:00
   0
 ENDSEC
   0

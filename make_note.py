@@ -18,6 +18,11 @@ Usage
     python make_note.py --example            # writes input_example.json to edit
     python make_note.py my_input.json --png  # also PNG previews of the drawings
     python make_note.py my_input.json --no-dxf   # only the Word note
+    python make_note.py my_input.json --no-pdf   # no PDF printout
+
+Output: the Word note, the DXF drawings and Project_<name>.pdf (note + all
+drawings at true scale) + Project_<name>_A3.pdf (drawings reduced to A3);
+the PDF needs LibreOffice for the note.
 
 Requirements:  pip install python-docx matplotlib numpy ezdxf
 """
@@ -37,6 +42,7 @@ SHEET = [
     ("student", "Student's name", str),
     ("faculty_no", "Faculty number", str),
     ("date", "Date", str),
+    ("adviser", "Adviser (title block of the drawings)", str),
     ("a", "a [cm]  (450-650)", float),
     ("b", "b [cm]  (450-650)", float),
     ("c", "c [cm]  (240-360)", float),
@@ -93,7 +99,8 @@ def main(argv):
     name = (inp.student or "student").replace(" ", "_")
     out = os.path.abspath(f"Explanatory_note_{name}.docx")
     print("\nCalculating ...")
-    P = runner.build(inp, out, drawings="--no-dxf" not in argv, png="--png" in argv)
+    P = runner.build(inp, out, drawings="--no-dxf" not in argv, png="--png" in argv,
+                     pdf="--no-pdf" not in argv)
     print("\nAutomatically chosen sizes:")
     for line in P.log:
         print("   ", line)
@@ -103,6 +110,8 @@ def main(argv):
             print("   ", line)
         for f in P.drawings["files"]:
             print("    ->", f)
+    for f in getattr(P, "pdf", []):
+        print("    ->", f)
     for line in P.warn:
         print("NOTE:", line)
     print(f"\nDone:  {out}")

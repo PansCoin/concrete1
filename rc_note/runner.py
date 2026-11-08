@@ -89,7 +89,7 @@ def title_page(nt, P):
 
 
 def build(inp: Inputs, out_path: str, workdir=None, sections=None, verbose=True,
-          drawings=True, png=False):
+          drawings=True, png=False, pdf=True):
     """Calculations -> DXF drawings (formwork + slab reinforcement) -> Word note.
     The drawings are written next to the note; if they cannot be made (ezdxf
     missing, input outside the range of the template) the note is still
@@ -131,6 +131,16 @@ def build(inp: Inputs, out_path: str, workdir=None, sections=None, verbose=True,
     if "summary" in P.res or True:
         summary(nt, P)
     nt.save(out_path)
+    P.pdf = []
+    if pdf and P.drawings:
+        if verbose:
+            print("  printout (PDF) ...", flush=True)
+        from . import printout
+        name = os.path.splitext(os.path.basename(out_path))[0].replace("Explanatory_note_", "")
+        try:
+            P.pdf = printout.make(P, out_path, os.path.dirname(os.path.abspath(out_path)), name)
+        except Exception as e:                    # the note and the DXF files are written anyway
+            P.warn.append(f"PDF not written: {e}")
     return P
 
 

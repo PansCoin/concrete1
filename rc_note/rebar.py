@@ -94,7 +94,7 @@ class BarType:
 
     def label(self, n):
         s = f"/{fmt(self.s)}" if self.s else ""
-        return f"N{self.pos} {self.mark} {n}%%c{self.phi}x{fmt(self.L)}{s}"
+        return f"N{self.pos} {self.mark} {n}Φ{self.phi}x{fmt(self.L)}{s}"
 
 
 @dataclass

@@ -235,7 +235,7 @@ class DBar:
         return sum(self.segs)
 
     def label(self):
-        return f"{self.n}Ø{self.phi} L={fmt(self.L)}"
+        return f"{self.n}Φ{self.phi} L={fmt(self.L)}"
 
 
 @dataclass
@@ -313,11 +313,11 @@ def draw_shape(sh, b, pts, label_at=None, label=None, segs=None):
 
 
 def schedule(sh, el, x0, y0):
-    rows = [[str(b.pos), f"Ø{b.phi}", "+".join(fmt(s) for s in b.segs[:4]) + ("..." if len(b.segs) > 4 else ""),
+    rows = [[str(b.pos), f"Φ{b.phi}", "+".join(fmt(s) for s in b.segs[:4]) + ("..." if len(b.segs) > 4 else ""),
              fmt(b.L), str(b.n), fmt(b.L * b.n / 100), fmt(b.L * b.n / 100 * MASS[b.phi])] for b in el.bars]
     rows.append(["", "", "", "", "", "Total", fmt(el.mass)])
     w = 2.2 * sh.h
-    cols = [("Pos.", 1.6 * w), ("Ø", 1.6 * w), ("Shape [cm]", 5.0 * w), ("L [cm]", 2.2 * w), ("n", 1.6 * w),
+    cols = [("Pos.", 1.6 * w), ("Φ", 1.6 * w), ("Shape [cm]", 5.0 * w), ("L [cm]", 2.2 * w), ("n", 1.6 * w),
             ("Total [m]", 2.6 * w), ("Mass [kg]", 2.6 * w)]
     return sh.table(x0, y0, cols, rows, f"Bar schedule - {el.title.split(' - ')[0]}")
 
@@ -403,7 +403,7 @@ def bar_list(sh, runs, y, x_shift=0.0):
             main = max(b.segs)
             segs = ([l0] if l0 else []) + [main] + ([l1] if l1 else [])
             draw_shape(sh, b, pts, label_at=((x0 + x1) / 2, y - 1.6 * sh.h - dn_),
-                       label=f"{r['n']}Ø{b.phi} L={fmt(b.L)}", segs=segs)
+                       label=f"{r['n']}Φ{b.phi} L={fmt(b.L)}", segs=segs)
         y -= dn_ + 3.4 * sh.h
     return y
 
@@ -415,7 +415,7 @@ def _f2(v):
 def draw_shift(sh, sp, y0):
     """Tension shifting diagram (course style): the tensile force M_Ed/z along the
     beam and the same curve shifted by a_l = 0.45·d·cotθ (EC2 9.2.1.3), drawn over
-    the force the bars can take: one horizontal line per bar (F_Ø = A_s·f_yd), solid
+    the force the bars can take: one horizontal line per bar (F_Φ = A_s·f_yd), solid
     where the bar exists and dashed beyond, risers and dots at the bar ends, the
     length of every step, a_l marked at the maxima, position numbers in circles.
     Sagging (bottom bars) downwards, hogging (top bars) upwards."""
@@ -527,7 +527,7 @@ def draw_shift(sh, sp, y0):
                             sh.line((a_, y), (b_, y), "D-HIDDEN")
                 if not tight or k == e["n"]:
                     yt = y if not tight else y - sgn * (e["n"] - 1) * dy / 2
-                    sh.text(f"F Ø{e['bar'].phi}", (xl - 0.8 * sh.h, yt), 0.85 * sh.h, align=MR)
+                    sh.text(f"F Φ{e['bar'].phi}", (xl - 0.8 * sh.h, yt), 0.85 * sh.h, align=MR)
             # risers and dots at the bar ends
             y0_, y1_ = ya + sgn * e["base"] / ks, ya + sgn * (e["base"] + e["n"] * e["F"]) / ks
             for x in e["ends"]:
@@ -599,7 +599,7 @@ def draw_shift(sh, sp, y0):
         e = GB[0]
         xe = e["ends"][0]
         A = BAR_AREA[e["bar"].phi]
-        l1 = f"F_Ø{e['bar'].phi} = A_s,Ø{e['bar'].phi}·f_yd = {fmt(A)}·{fmt(fyd)} ="
+        l1 = f"F_Φ{e['bar'].phi} = A_s,Φ{e['bar'].phi}·f_yd = {fmt(A)}·{fmt(fyd)} ="
         l2 = f"= {A * fyd:.0f} N = {_f2(e['F'])} kN"
         sh.line((xe, ya - (e["base"] + e["F"]) / ks), (xe, y_u), "D-TEXT")
         w = 0.62 * ht * max(len(l1), len(l2))
@@ -622,7 +622,7 @@ def draw_shift(sh, sp, y0):
             end = j in (0, len(sup) - 1)
             side = -1 if (j == len(sup) - 1 and j > 0) else 1
             face = xs + side * t / 2
-            # M_Ed/z at the axis, one step F_Ø at the face, a_l on both sides
+            # M_Ed/z at the axis, one step F_Φ at the face, a_l on both sides
             x_md = (face + side * 5.0 * sh.h) if end else (xs - side * (t / 2 + 2.5 * sh.h))
             sh.dim((xs, ya), (xs, ya + Fs / ks), (x_md, ya), vertical=True, text=f"M_Ed/z={_f2(Fs)} kN")
             e = max(Gs, key=lambda e_: e_["F"] * e_["n"])
@@ -634,7 +634,7 @@ def draw_shift(sh, sp, y0):
                 if any(any(r0 <= (a_ + b_) / 2 <= r1 for r0, r1 in e_["runs"]) for e_ in Gs):
                     sh.dim((a_, y_dt - 1.0 * sh.h), (b_, y_dt - 1.0 * sh.h), (a_, y_dt), text=f"a_l={_f2(al)}")
             A = BAR_AREA[e["bar"].phi]
-            lf1 = f"F_Ø{e['bar'].phi} = A_s,Ø{e['bar'].phi}·f_yd = {fmt(A)}·{fmt(fyd)} ="
+            lf1 = f"F_Φ{e['bar'].phi} = A_s,Φ{e['bar'].phi}·f_yd = {fmt(A)}·{fmt(fyd)} ="
             lf2 = f"= {A * fyd:.0f} N = {_f2(e['F'])} kN"
             lm = (f"M_Ed/z = M_Ed/(ζ·d) = {_f2(Fs * S['zn'])}/({zeta_n:.3f}·{d_mm / 1000:.3f}) = "
                   f"{_f2(Fs)} kN")
@@ -675,7 +675,7 @@ def draw_shift(sh, sp, y0):
     lines = [(f"ΔF_td = 0.5·V_Ed·cotθ = 0.5·{_f2(S['V'])}·{fmt(cot)} = {_f2(dF)} kN", ),
              (f"a_l = 0.45·d·cotθ = 0.45·{fmt(d_mm / 10)}·{fmt(cot)} = {_f2(al)} cm", )] + block
     b0 = GB[0] if GB else None
-    lines.append((f"1 cm = {P_:g} kN" + (f";  F_Ø{b0['bar'].phi} = {_f2(b0['F'])} kN = {b0['F'] / P_:.2f} cm"
+    lines.append((f"1 cm = {P_:g} kN" + (f";  F_Φ{b0['bar'].phi} = {_f2(b0['F'])} kN = {b0['F'] / P_:.2f} cm"
                                          if b0 else ""), ))
     xt = xr + (9.0 if hog else 2.0) * sh.h
     yl = (ya + top_h) if hog else ya
@@ -762,7 +762,7 @@ def draw_beam(sh, sp, x_off=0.0, draw_sections=True, draw_list=True, sched=True)
             xx = x + (i - (n - 1) / 2) * 5.0
             sh.line((xx, yl0), (xx, yl1), "D-LINKS")
         total += n
-        sh.text(f"{n}Ø{sp.link.phi} hangers", (x, h + 1.2 * sh.h), 0.8 * sh.h)
+        sh.text(f"{n}Φ{sp.link.phi} hangers", (x, h + 1.2 * sh.h), 0.8 * sh.h)
     if sp.link is not None:
         sp.link.n += total
         if sp.zones:
@@ -774,7 +774,7 @@ def draw_beam(sh, sp, x_off=0.0, draw_sections=True, draw_list=True, sched=True)
     yz = h + up + 4.0 * sh.h
     for x0, x1, s in sp.zones:
         n = link_count(x0, x1, s)
-        sh.dim((x0, h), (x1, h), (x0, yz), text=f"{n}Ø{sp.phi_w}/{fmt(s)}")
+        sh.dim((x0, h), (x1, h), (x0, yz), text=f"{n}Φ{sp.phi_w}/{fmt(s)}")
     # supports and spans dimensioned below
     xs = []
     for s in sups:
@@ -831,7 +831,7 @@ def draw_beam_sections(sh, sp, x0, h):
                 ly = -2.4 * sh.h - 2.4 * sh.h * k if level == "bot" else h + 1.6 * sh.h + 2.4 * sh.h * k
                 lx = x0 + bw + fl + 2.5 * sh.h
                 sh.bubble(b.pos, (lx, ly), (xs_[-1], y))
-                sh.text(f"{n}Ø{b.phi}", (lx + 1.5 * sh.h, ly), 0.9 * sh.h, align=ML)
+                sh.text(f"{n}Φ{b.phi}", (lx + 1.5 * sh.h, ly), 0.9 * sh.h, align=ML)
         if side:
             b, n = side
             for xx in (x0 + C + pw + b.phi / 20, x0 + bw - C - pw - b.phi / 20):
@@ -840,7 +840,7 @@ def draw_beam_sections(sh, sp, x0, h):
                     sh.dot((xx, yy), b.phi)
             lx = x0 + bw + fl + 2.5 * sh.h
             sh.bubble(b.pos, (lx, h / 2), (x0 + bw - C - pw - b.phi / 20, h / 2))
-            sh.text(f"2x{n}Ø{b.phi}", (lx + 1.5 * sh.h, h / 2), 0.9 * sh.h, align=ML)
+            sh.text(f"2x{n}Φ{b.phi}", (lx + 1.5 * sh.h, h / 2), 0.9 * sh.h, align=ML)
         if sp.link is not None:
             sh.bubble(sp.link.pos, (x0 - fl - 2.0 * sh.h, h * 0.35), (x0 + C, h * 0.35))
         sh.dim((x0, 0), (x0 + bw, 0), (x0, -1.3 * sh.h))
@@ -1006,7 +1006,7 @@ def column_section(sh, x0, y0, W, D_, n, phi, phi_w, bar, link, tie=None, title=
     if title:
         sh.text(title, (x0 + W / 2, y0 + D_ + 2.2 * sh.h), 1.1 * sh.h)
     sh.bubble(bar.pos, (x0 + W + 2.4 * sh.h, y0 + D_ + 1.0 * sh.h), (x0 + W - off, ys[-1]))
-    sh.text(f"{n}Ø{phi}", (x0 + W + 3.8 * sh.h, y0 + D_ + 1.0 * sh.h), 0.9 * sh.h, align=ML)
+    sh.text(f"{n}Φ{phi}", (x0 + W + 3.8 * sh.h, y0 + D_ + 1.0 * sh.h), 0.9 * sh.h, align=ML)
     sh.bubble(link.pos, (x0 - 2.4 * sh.h, y0 + D_ / 2), (x0 + C, y0 + D_ / 2))
     if tie is not None and k > 2:
         sh.bubble(tie.pos, (x0 + W + 2.4 * sh.h, y0 + D_ / 2), (x0 + W - C, ys[1]))
@@ -1041,7 +1041,7 @@ def _column_section_frame(sh, x0, y0, W, D_, n, phi, phi_w, bar, link, tie, tie2
     if title:
         sh.text(title, (x0 + W / 2, y0 + D_ + 2.2 * sh.h), 1.1 * sh.h)
     sh.bubble(bar.pos, (x0 + W + 2.4 * sh.h, y0 + D_ + 1.0 * sh.h), (xs[-1], y0 + D_ - off))
-    sh.text(f"{n}Ø{phi}", (x0 + W + 3.8 * sh.h, y0 + D_ + 1.0 * sh.h), 0.9 * sh.h, align=ML)
+    sh.text(f"{n}Φ{phi}", (x0 + W + 3.8 * sh.h, y0 + D_ + 1.0 * sh.h), 0.9 * sh.h, align=ML)
     sh.bubble(link.pos, (x0 - 2.4 * sh.h, y0 + D_ - 0.3 * D_), (x0 + C, y0 + D_ - 0.3 * D_))
     if dims:
         sh.dim((x0, y0), (x0 + W, y0), (x0, y0 - 5.6 * sh.h))
@@ -1155,7 +1155,7 @@ def draw_column_C10(sh, el, d):
             y = ya + 5 + i * step
             sh.line((x0 + C, y), (x1 - C, y), "D-LINKS")
         sh.dim((x0 - 100, ya), (x0 - 100, yb), (x0 - 100 - 2.0 * sh.h, ya), vertical=True,
-               text=f"{n}Ø{d['phiw']}/{fmt(ss)}")
+               text=f"{n}Φ{d['phiw']}/{fmt(ss)}")
     d["lk"].n += tot
     sh.bubble(d["lk"].pos, (x0 - 2.5 * sh.h, lv1 - hB - lcr / 2), (x0 + C, lv1 - hB - lcr / 2))
     # levels and dimensions
@@ -1318,7 +1318,7 @@ def draw_frame(sh, el, sp, fd):
             sh.bubble(c["link"].pos, (x - hcol / 2 - 3 * sh.h, y_ft + 0.55 * below), (x - hcol / 2 + C, y_ft + 0.55 * below))
             sh.dim((x - hcol / 2 - 4 * sh.h, y_ft + lcr), (x - hcol / 2 - 4 * sh.h, -lcr),
                    (x - hcol / 2 - 6 * sh.h, y_ft + lcr), vertical=True,
-                   text=f"{link_count(y_ft + lcr, -lcr, s)}Ø{c['phiw']}/{fmt(s)}")
+                   text=f"{link_count(y_ft + lcr, -lcr, s)}Φ{c['phiw']}/{fmt(s)}")
     y_low = draw_beam(sh, sp, draw_list=False, sched=False)
     # levels
     sh.text("±0.00 (top of footing)", (fd["xs"]["C12"] + Lf / 2 + 10, y_ft + 0.8 * sh.h), 0.8 * sh.h, align=BL)
@@ -1332,7 +1332,7 @@ def draw_frame(sh, el, sp, fd):
         yb = y_ft - Hf + C_FOOT + 3
         ytop = sp.h + c["lap"]
         draw_shape(sh, b, [(xv + b.segs[0], yb), (xv, yb), (xv, ytop)],
-                   label_at=(xv + 5.5 * sh.h, yb - 2.8 * sh.h), label=f"{c['n']}Ø{b.phi} L={fmt(b.L)} ({who})")
+                   label_at=(xv + 5.5 * sh.h, yb - 2.8 * sh.h), label=f"{c['n']}Φ{b.phi} L={fmt(b.L)} ({who})")
         sh.vchain([yb, y_ft, 0, sp.h, ytop], xv, xv - 3.0 * sh.h)
         sh.text(f"lap {fmt(c['lap'])}", (xv + 1.2 * sh.h, sp.h + c["lap"] / 2), 0.75 * sh.h, rot=90)
         xv += 30 * sh.h
@@ -1402,9 +1402,9 @@ def draw_footing(sh, el, d):
     y2 = cf + 2 * (B - 2 * cf) / max(n1 - 1, 1)
     x2 = cf + 2 * (L - 2 * cf) / max(n2 - 1, 1)
     sh.bubble(d["b1"].pos, (L + 3 * sh.h, y2), (L - cf, y2))
-    sh.text(f"{n1}Ø{d['phi']}/{fmt(s)}", (L + 4.5 * sh.h, y2), 0.9 * sh.h, align=ML)
+    sh.text(f"{n1}Φ{d['phi']}/{fmt(s)}", (L + 4.5 * sh.h, y2), 0.9 * sh.h, align=ML)
     sh.bubble(d["b2"].pos, (x2, -3 * sh.h), (x2, cf))
-    sh.text(f"{n2}Ø{d['phi']}/{fmt(s)}", (x2 + 1.6 * sh.h, -3 * sh.h), 0.9 * sh.h, align=ML)
+    sh.text(f"{n2}Φ{d['phi']}/{fmt(s)}", (x2 + 1.6 * sh.h, -3 * sh.h), 0.9 * sh.h, align=ML)
     sh.hchain([0, (L - hc) / 2, (L + hc) / 2, L], B, B + 1.8 * sh.h)
     sh.dim((0, B), (L, B), (0, B + 4.6 * sh.h))
     sh.vchain([0, (B - bc) / 2, (B + bc) / 2, B], 0, -1.8 * sh.h)
@@ -1520,7 +1520,7 @@ def draw_stairs(sh, el, d):
     b4 = el.bar(8, [15.0, (25 - C) + Lt], "top at the wall")
     b4.n = n_bars(d["d"], 20.0)
     sh.pline([(wall + 25 - C, y4 - 15), (wall + 25 - C, y4), (wall - Lt, y4)], "D-BARS")
-    # pos 5: distribution bars Ø8/20 (dots)
+    # pos 5: distribution bars Φ8/20 (dots)
     b5 = el.bar(8, [d["d"] - 2 * C], "distribution bars")
     cnt = 0
     for x in [x_s + 10 + i * 20 * ca for i in range(int((x_e - x_s - 20) * 1 / (20 * ca)) + 1)]:
@@ -1547,7 +1547,7 @@ def draw_stairs(sh, el, d):
         sh.dot((x0 + 5 + i * (d["d"] - 10) / max(nmain - 1, 1), cb), d["phi"])
     sh.line((x0 + C, cb + d["phi"] / 20 + 0.8), (x0 + d["d"] - C, cb + d["phi"] / 20 + 0.8), "D-BARS")
     sh.bubble(b1.pos, (x0 + d["d"] + 4 * sh.h, cb), (x0 + d["d"] - 5, cb))
-    sh.text(f"{nmain}Ø{d['phi']}/{fmt(s)}", (x0 + d["d"] + 6 * sh.h, cb), sh.h, align=ML)
+    sh.text(f"{nmain}Φ{d['phi']}/{fmt(s)}", (x0 + d["d"] + 6 * sh.h, cb), sh.h, align=ML)
     sh.bubble(b5.pos, (x0 + 0.3 * d["d"], h + 3 * sh.h), (x0 + 0.3 * d["d"], cb + 1.5))
     sh.dim((x0, 0), (x0 + d["d"], 0), (x0, -4 * sh.h))
     sh.dim((x0, 0), (x0, h), (x0 - 4 * sh.h, 0), vertical=True)
@@ -1654,38 +1654,19 @@ FILE_NAMES = {"B21": "Beam_B21", "BT": "Beam_axis_E_torsion", "B5": "Beam_B5", "
               "ST": "Stairs"}
 
 
-def title_block(sh, el, inp, x1, y0):
-    """Title block (right bottom corner of the sheet, x1 = right edge, y0 = bottom edge)."""
-    h = sh.h
-    rows = [("Project", "RC course project - reinforcement drawing"),
-            ("Element", el.title),
-            ("Student", f"{inp.student}  {inp.faculty_no}  {inp.date}".strip()),
-            ("Materials", f"C{int(inp.fck)}/{int(inp.fck + 5)}, B{int(inp.fyk)}, c_nom = 25 mm"),
-            ("Scale", f"1:{el.scale}  (drawing unit = 1 cm)"),
-            ("Steel", f"{fmt(el.mass)} kg")]
-    w1 = 11 * h
-    w2 = max(max(0.72 * (1.1 if k == 1 else 0.9) * h * len(v) for k, (_, v) in enumerate(rows)) + 3 * h, 45 * h)
-    rh = 2.2 * h
-    x0 = x1 - w1 - w2
-    y = y0 + rh * len(rows)
-    sh.rect(x0, y0, x1, y, "D-TEXT")
-    sh.line((x0 + w1, y0), (x0 + w1, y), "D-TEXT")
-    for k, (a, v) in enumerate(rows):
-        yy = y - k * rh
-        if k:
-            sh.line((x0, yy), (x1, yy), "D-TEXT")
-        sh.text(a, (x0 + 0.8 * h, yy - rh / 2), 0.9 * h, align=ML)
-        sh.text(v, (x0 + w1 + 0.8 * h, yy - rh / 2), (1.1 if k == 1 else 0.9) * h, align=ML)
-    return w1 + w2, rh * len(rows)
+def sheet_title(el):
+    return "Reinforcement of " + el.title.split(" - ")[0].replace("Beam on axis E (3-4)", "the torsion beam (axis E)")
 
 
 def export(P, out_dir, name, png=False, png_dir=None):
-    """Write every element drawing into its own DXF file (with border and title block).
-    Returns a list of (element, dxf path, png path or None)."""
+    """Write every element drawing into its own DXF file (sheet with frame and title block).
+    Returns a list of (element, dxf path, png path or None, Sheet, doc)."""
     import ezdxf
+    from . import sheets
     if png_dir:
         os.makedirs(png_dir, exist_ok=True)
     out = []
+    inp = P.inp
     for el, fn in build(P):
         doc = ezdxf.new("R2010")
         doc.units = ezdxf.units.CM
@@ -1695,22 +1676,18 @@ def export(P, out_dir, name, png=False, png_dir=None):
         fn(sh)
         bx0, by0, bx1, by1 = sh.box
         sh.text(f"{el.title.upper()}   M 1:{el.scale}", ((bx0 + bx1) / 2, by1 + 3 * sh.h), 2.0 * sh.h)
-        m = 6 * sh.h
-        tw, th = title_block(Sheet(None, 0, 0, el.scale), el, P.inp, 0, 0)
-        X0, Y0, X1, Y1 = sh.box[0] - m, sh.box[1] - m - th - m, sh.box[2] + m, sh.box[3] + m
-        X1 = max(X1, X0 + tw + 2 * m)
-        title_block(sh, el, P.inp, X1 - m / 2, Y0 + m / 2)
-        sh.rect(X0, Y0, X1, Y1, "D-TEXT")
-        sh.rect(X0 - m / 2, Y0 - m / 2, X1 + m / 2, Y1 + m / 2, "D-TEXT")
-        doc.header["$EXTMIN"] = (X0 - m, Y0 - m, 0)
-        doc.header["$EXTMAX"] = (X1 + m, Y1 + m, 0)
+        sh.text(f"Concrete C{int(inp.fck)}/{int(inp.fck + 5)}, reinforcing steel B{int(inp.fyk)}, "
+                f"concrete cover c_nom = 25 mm.  Mass of the reinforcement: {fmt(el.mass)} kg.",
+                (bx0, by0 - 2.5 * sh.h), 0.9 * sh.h, align=ML)
+        sht = sheets.add_sheet(doc, msp, tuple(sh.box), el.scale, inp, sheet_title(el))
+        doc.header["$EXTMIN"] = (sht.rect[0], sht.rect[1], 0)
+        doc.header["$EXTMAX"] = (sht.rect[2], sht.rect[3], 0)
         f = os.path.join(out_dir, f"Reinforcement_{FILE_NAMES.get(el.key, el.key)}_{name}.dxf")
         doc.saveas(f)
         p = None
         if png or png_dir:
             from .dxf_formwork import render_png
             p = os.path.join(png_dir or out_dir, os.path.basename(f)[:-4] + ".png")
-            W = X1 - X0 + 2 * m
-            render_png(doc, p, box=(X0 - m, Y0 - m, X1 + m, Y1 + m), width_px=int(min(3600, max(1800, W * 4))))
-        out.append((el, f, p))
+            render_png(doc, p, box=sht.rect, width_px=3000)
+        out.append((el, f, p, sht, doc))
     return out

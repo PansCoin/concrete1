@@ -10,7 +10,9 @@ M / V / N diagrams, tables and checks.
 
 ## Install (once)
 
-    pip install python-docx matplotlib numpy ezdxf
+    pip install python-docx matplotlib numpy ezdxf pypdf
+
+LibreOffice is needed only for the PDF printout of the note (`soffice` on the path).
 
 ## Run
 
@@ -19,6 +21,7 @@ M / V / N diagrams, tables and checks.
     python make_note.py --example        # writes input_example.json for you to edit
     python make_note.py my_input.json --png      # also PNG previews of the drawings
     python make_note.py my_input.json --no-dxf   # only the Word note
+    python make_note.py my_input.json --no-pdf   # no PDF printout
 
 Output, in the current folder:
 
@@ -27,7 +30,16 @@ Output, in the current folder:
 | `Explanatory_note_<name>.docx` | the explanatory note (sections I–XI, summary, section XII with the bar schedule) |
 | `Formwork_<name>.dxf` | formwork plan of the slab above the first floor, M 1:50 |
 | `Slab_reinforcement_<name>.dxf` | bottom and top reinforcement plans of the slab (M 1:50) and, under them, the reinforcement drawings of all elements – with bar schedules |
-| `Reinforcement_<element>_<name>.dxf` | one file per element, with border and title block: `Beam_B21`, `Beam_axis_E_torsion`, `Beam_B5`, `Frame_axis_2`, `Column_C7`, `Column_C10`, `Footing_C7` (M 1:25), `Stairs` (M 1:10) |
+| `Reinforcement_<element>_<name>.dxf` | one file per element: `Beam_B21`, `Beam_axis_E_torsion`, `Beam_B5`, `Frame_axis_2`, `Column_C7`, `Column_C10`, `Footing_C7` (M 1:25), `Stairs` (M 1:10) |
+| `Project_<name>.pdf` | **the whole project, ready to print**: the explanatory note (A4, table of contents updated) and every drawing sheet at true scale on its ISO paper (A0 ... A3) |
+| `Project_<name>_A3.pdf` | the same with every drawing reduced to A3 (office printer; the scale in the title block is then not valid) |
+
+Every drawing is on a **sheet**: the smallest ISO A paper on which it fits at its scale,
+a frame (20 mm binding margin) and the title block of the department in the bottom right
+corner – University of Architecture, Civil Engineering and Geodesy / Department of Reinforced
+Concrete Structures / Project / Drawing + scale / Student + faculty number / Adviser + date.
+The adviser and the project name are input fields (`adviser`, default "prof. M. Traykova";
+`project`, default "Office building"). Bar diameters are written with Φ in all drawings.
 
 In Word, right-click the table of contents and choose "Update field".
 Drawing unit in the DXF files = 1 cm.
@@ -42,9 +54,14 @@ The hall beams are re-spaced, meeting-room panels are added or removed (with
 renumbering of the slabs and beams), the balconies get the depth d and the canopy
 1.25·d. The slab thicknesses `h_f = .. cm` and a table of the element sizes
 (slabs, beams, columns, footing) come from the calculations.
-The beam section marks of the plan are redrawn to the same values: slab thickness h_f of the
-slab at the mark and beam depth h from the design (B5-B9, B15, B21, facade beams 60 cm); beams that
-are not designed keep the template depth rounded up to 5 cm, the same along one beam line.
+The beam section marks of the plan are redrawn from scratch, symmetric about the web: a hatched
+T (L for edge beams, stepped where the slabs on the two sides are at different levels) with the slab
+thickness of the slab field on each side and the beam depth h from the design (B5-B9, B15, B21,
+facade beams 60 cm); beams that are not designed keep the template depth rounded up to 5 cm, the
+same along one beam line. The dimensions h_f + web are on one side, h (or the other slab) on the
+other, at the same distance. The stretched dimensions of the template are replaced by clean chains:
+faces + axes and the overall size on all four sides, the beams of the hall, the panels of the
+meeting room and the balconies.
 
 **Reinforcement plans** – `rc_note/rebar.py` (bar and mesh positions) and `rc_note/dxf_rebar.py`
 (drawing). The background is only the outline of the structure (beams, walls, columns, axes,

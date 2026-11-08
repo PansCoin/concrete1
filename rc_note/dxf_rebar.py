@@ -15,7 +15,7 @@ dimensions, levels or stairs), light grey, one block under each plan.
 Hall slabs (1..n): welded wire meshes - every mesh piece is drawn as a
 rectangle with a diagonal and the label "M<pos> R188 - L/B m".
 Other slabs: bars - one representative bar per group with its shape and the
-lengths of its parts and the label "N<pos> <mark> <n>Ø<d>x<L>/<s>".
+lengths of its parts and the label "N<pos> <mark> <n>Φ<d>x<L>/<s>".
 The width over which a group of bars (or a zone of meshes) is spread is given
 with dimension lines (DIMENSION entities); collinear dimensions are chained
 so that they touch each other (the widths of the supports in between are
@@ -131,6 +131,8 @@ def prepare_background(doc, lay):
                 keep = bool(LABEL_RE.fullmatch(s)) and e.dxf.insert.x < lay.X["7"] + 300
         elif t == "CIRCLE" and 18.0 <= e.dxf.radius <= 21.0:
             keep = True
+        if e.dxf.layer == "SHEET":                    # frame and title block of the formwork sheet
+            keep = False
         if not keep:
             msp.delete_entity(e)
     holes = []
@@ -369,7 +371,7 @@ def mesh_mass(meshes):
 def schedule_tables(msp, x0, y0, bars, meshes, title, slab_total=None):
     y = y0
     if bars:
-        cols = [("Pos.", 45, "c"), ("Mark", 45, "c"), ("Ø [mm]", 55, "c"), ("Shape [cm]", 125, "c"),
+        cols = [("Pos.", 45, "c"), ("Mark", 45, "c"), ("Φ [mm]", 55, "c"), ("Shape [cm]", 125, "c"),
                 ("L [cm]", 60, "c"), ("n [pcs]", 60, "c"), ("Total [m]", 75, "c"), ("Location", 330, "l")]
         rows = [[f"N{b.pos}", b.mark, str(b.phi), shape_text(b), fmt(b.L), str(b.n_total),
                  fmt(b.L * b.n_total / 100.0), _short("; ".join(b.where))] for b in bars]
@@ -385,7 +387,7 @@ def schedule_tables(msp, x0, y0, bars, meshes, title, slab_total=None):
     tot, mass = Schedule.totals(bars)
     mm = mesh_mass(meshes)
     cols2 = [("Steel", 90, "c"), ("Length [m]", 100, "c"), ("kg/m", 80, "c"), ("Mass [kg]", 100, "c")]
-    rows2 = [[f"Ø{d}", fmt(v[0]), fmt(MASS[d]), fmt(v[1])] for d, v in tot.items()]
+    rows2 = [[f"Φ{d}", fmt(v[0]), fmt(MASS[d]), fmt(v[1])] for d, v in tot.items()]
     if meshes:
         rows2.append(["Meshes", "", "", fmt(mm)])
     rows2.append(["Total", "", "", fmt(mass + mm)])
@@ -408,16 +410,16 @@ def write(formwork_path, out_path, lay, plan, inp, title_extra="", P=None):
     ext = ezbbox.extents(doc.blocks.get(BG_BLOCK), fast=True)
     left = ext.extmin.x
     tab_x = X["7"] + 380
-    pitch = math.ceil(((tab_x + 900) - left + 400) / 500.0) * 500.0
     sch = plan.schedule
     bars = {f: sch.rows(f) for f in ("bottom", "top")}
     meshes = {f: sch.mesh_rows(f) for f in ("bottom", "top")}
     total = sum(sch.totals(bars[f])[1] + mesh_mass(meshes[f]) for f in ("bottom", "top"))
     title_y = ext.extmax.y + 60
     lvl = f"+{lay.level:.2f}"
-    specs = [(0.0, "bottom", plan.bottom, plan.mesh_bottom, None),
-             (pitch, "top", plan.top, plan.mesh_top, total)]
-    for dx, face, reps, zones, slab_total in specs:
+    from . import sheets as sheets_
+    sheets = []
+
+    def draw_face(dx, face, reps, zones, slab_total):
         msp.add_blockref(BG_BLOCK, (dx, 0))
         for z in zones:
             draw_mesh_zone(msp, z, dx)
@@ -433,18 +435,16 @@ def write(formwork_path, out_path, lay, plan, inp, title_extra="", P=None):
                                    angle=90 if vert else 0, dimstyle=DIMSTYLE, dxfattribs={"layer": "R-DIM"})
             d.render()
         if face == "bottom":
-            for (x, y, s, h, rot) in plan.texts:
-                text(msp, s, (x + dx, y), h, rot)
+            for (x, y, s_, h, rot) in plan.texts:
+                text(msp, s_, (x + dx, y), h, rot)
         title = f"{face.upper()} REINFORCEMENT OF THE SLAB ABOVE THE FIRST FLOOR (LEVEL {lvl})   M 1:50"
         text(msp, title, ((X["1"] + X["7"]) / 2 + dx, title_y), 22.0, layer="R-TITLE")
-        if title_extra:
-            text(msp, title_extra, ((X["1"] + X["7"]) / 2 + dx, title_y - 34), 13.0, layer="R-TITLE")
         schedule_tables(msp, tab_x + dx, Y["E"] + 250, bars[face], meshes[face],
                         f"Schedule - {face}", slab_total)
         notes = [
             f"Concrete C{int(inp.fck)}/{int(inp.fck + 5)}, reinforcing steel B{int(inp.fyk)}, "
             f"concrete cover c_nom = 25 mm.",
-            "Bars: N<position> <mark> <number>Ø<diameter> x <length [cm]> / <spacing [cm]>; "
+            "Bars: N<position> <mark> <number>Φ<diameter> x <length [cm]> / <spacing [cm]>; "
             "BR bottom, DR distribution, TR top, AR assembly bars under the top bars (dots).",
             "Meshes: M<position> <type> - <length along the main bars> / <width> [m]; "
             "the diagonal marks one mesh piece.",
@@ -452,18 +452,31 @@ def write(formwork_path, out_path, lay, plan, inp, title_extra="", P=None):
             "overlap (lap) of bars or meshes.",
             "Bottom bars run into the supports up to the far face minus the cover; "
             "top bars are bent down to the bottom cover. Bottom bars end with a 12 cm leg where they do not "
-            "overlap other bars. Laps of bars: 40Ø (Ø8: 32 cm, Ø10: 40 cm).",
+            "overlap other bars. Laps of bars: 40Φ (Φ8: 32 cm, Φ10: 40 cm).",
         ] + plan.notes
         yy = ext.extmin.y - 60
-        for i, s in enumerate(notes):
-            text(msp, f"{i + 1}. {s}", (X["1"] + dx, yy - i * 20), 11.0, layer="R-TEXT", align=ML)
+        for i, s_ in enumerate(notes):
+            text(msp, f"{i + 1}. {s_}", (X["1"] + dx, yy - i * 20), 11.0, layer="R-TEXT", align=ML)
+
+    pitch = 0.0
+    for face, reps, zones, slab_total in (("bottom", plan.bottom, plan.mesh_bottom, None),
+                                          ("top", plan.top, plan.mesh_top, total)):
+        before = {id(e) for e in msp}
+        draw_face(pitch, face, reps, zones, slab_total)
+        box = sheets_.content_box([e for e in msp if id(e) not in before])
+        name = "Bottom" if face == "bottom" else "Top"
+        sht = sheets_.add_sheet(doc, msp, box, 50, inp,
+                                f"{name} reinforcement of the slab at level {lvl}")
+        sheets.append(sht)
+        if face == "bottom":                      # the top plan on the next sheet
+            pitch = (sht.rect[2] - sht.rect[0]) + 500.0
     # detail drawings of the elements under the slab plans
     details_ = []
     if P is not None:
         from . import details
         details.setup(doc)
-        y_top = ext.extmin.y - 60 - 20 * (len(plan.notes) + 6) - 250
-        details_, _ = details.place(msp, P, X["1"] - 300, y_top, 2 * pitch)
+        y_top = min(sh_.rect[1] for sh_ in sheets) - 500
+        details_, _ = details.place(msp, P, sheets[0].rect[0], y_top, pitch + sheets[-1].rect[2] - sheets[-1].rect[0])
     plan.details = details_
     try:
         e = ezbbox.extents(msp, fast=True)
@@ -472,4 +485,4 @@ def write(formwork_path, out_path, lay, plan, inp, title_extra="", P=None):
     except Exception:
         pass
     doc.saveas(out_path)
-    return doc, pitch
+    return doc, pitch, sheets

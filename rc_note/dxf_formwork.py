@@ -903,13 +903,22 @@ def find_sections(msp):
             m = e.get_measurement()
         except Exception:
             continue
+        p2, p3 = e.dxf.defpoint2, e.dxf.defpoint3
+        if e.dimtype % 32 == 1:                      # aligned: measured along p2 -> p3
+            if abs(p2.x - p3.x) < 0.5:
+                ax = 1
+            elif abs(p2.y - p3.y) < 0.5:
+                ax = 0
+            else:
+                continue
+            m = abs(p3[ax] - p2[ax])
+        else:
+            ang = round(e.dxf.get("angle", 0.0)) % 180
+            if ang not in (0, 90):
+                continue
+            ax = 0 if ang == 0 else 1
         if not isinstance(m, (int, float)) or m > 120:
             continue
-        ang = round(e.dxf.get("angle", 0.0)) % 180
-        if ang not in (0, 90):
-            continue
-        ax = 0 if ang == 0 else 1
-        p2, p3 = e.dxf.defpoint2, e.dxf.defpoint3
         a, b = sorted((p2[ax], p3[ax]))
         D.append(dict(e=e, ax=ax, a=a, b=b, L=b - a, o=(p2[1 - ax] + p3[1 - ax]) / 2, cs=[p2[1 - ax], p3[1 - ax]]))
     out, used = [], set()
@@ -934,97 +943,179 @@ def find_sections(msp):
                 break
             used.add(id(T["e"]))
             out.append(dict(key=key, ax=T["ax"], top=top, f=f, bot=bot, sgn=sgn, o=T["o"],
-                            hf=abs(f - top), h=abs(bot - top), cs=T["cs"] + H["cs"] + W[0]["cs"]))
+                            hf=abs(f - top), h=abs(bot - top), cs=T["cs"] + H["cs"] + W[0]["cs"],
+                            dims=[T["e"], H["e"], W[0]["e"]]))
             break
     return out
 
 
-def update_sections(doc, msp, sections, hf_at, depth_of):
-    """Rescale every section mark along its depth so that the slab is hf_at(...)
-    and the beam depth_of(...) (or the template depth rounded to 5 cm)."""
-    mover = Mover(doc, None)
-    hatches = [(h, ezbbox.extents([h], fast=True)) for h in msp.query("HATCH")]
-    report = []
-    moved = set()                                # every entity is rescaled once
-    # beams that are not designed: the template depth in 5 cm steps, the same along one beam line
+SEC_DIMSTYLE = "RC_SECTION"
+SEC_FLANGE = 35.0          # cm, flange drawn on each side of the web
+SEC_DIM_OFF = 14.0         # cm, distance of the dimension lines from the symbol
+
+
+def _sec_dimstyle(doc):
+    if SEC_DIMSTYLE not in doc.dimstyles:
+        doc.dimstyles.new(SEC_DIMSTYLE, dxfattribs={
+            "dimtxt": 9.0, "dimasz": 3.5, "dimblk": "OBLIQUE", "dimexo": 1.5, "dimexe": 2.5,
+            "dimgap": 1.5, "dimdec": 0, "dimzin": 8, "dimtad": 1, "dimtih": 0, "dimtoh": 0,
+            "dimtxsty": "Standard", "dimlunit": 2, "dimtmove": 2, "dimclrt": 7, "dimclrd": 3, "dimclre": 3})
+
+
+def _outline_of(sec, lines):
+    """Outline of a section mark: the connected axis-parallel lines (layer 0, colour 3)
+    around the bottom of the web. Returns (component, (c0, c1)) or None."""
+    ax, top, bot, o = sec["ax"], sec["top"], sec["bot"], sec["o"]
+    lo, hi = min(top, bot), max(top, bot)
+    U = lambda p: p[ax]
+    V = lambda p: p[1 - ax]
+    cand = []
+    for e in lines:
+        if not e.is_alive or e.dxf.layer != "0" or e.dxf.color != 3:
+            continue
+        a_, b_ = e.dxf.start, e.dxf.end
+        if abs(U(a_) - U(b_)) > 0.3 and abs(V(a_) - V(b_)) > 0.3:
+            continue
+        if all(lo - 2 <= U(q) <= hi + 2 and o - 130 <= V(q) <= o + 130 for q in (a_, b_)):
+            cand.append(((U(a_), V(a_)), (U(b_), V(b_))))
+    bottoms = [c for c in cand if abs(c[0][0] - bot) < 1.5 and abs(c[1][0] - bot) < 1.5
+               and 15 <= abs(c[0][1] - c[1][1]) <= 45]
+    if not bottoms:
+        return None
+    start = min(bottoms, key=lambda c: abs((c[0][1] + c[1][1]) / 2 - o) if not (min(c[0][1], c[1][1]) - 1 <= o <= max(c[0][1], c[1][1]) + 1) else -1)
+    c0, c1 = sorted((start[0][1], start[1][1]))
+
+    comp = [c for c in cand if min(c[0][1], c[1][1]) >= c0 - 60 and max(c[0][1], c[1][1]) <= c1 + 60]
+    return comp, (c0, c1)
+
+
+def rebuild_sections(doc, msp, sections, hf_at, depth_of):
+    """Redraw every beam section mark of the plan: a hatched T (L for edge beams,
+    stepped where the slabs on the two sides are at different levels) of the
+    designed depth and slab thickness, symmetric about the web, with the
+    dimensions of each side at the same distance from the symbol."""
+    _sec_dimstyle(doc)
     for sec in sections:
         mid = (sec["top"] + sec["bot"]) / 2
         cx, cy = (mid, sec["o"]) if sec["ax"] == 0 else (sec["o"], mid)
+        sec["c"] = (cx, cy)
         sec["h_set"] = depth_of(cx, cy, sec)
         sec["h_tpl"] = 5 * math.ceil((sec["h"] - 2) / 5)
     for sec in sections:
         if sec["h_set"] is None:
-            same = [t["h_tpl"] for t in sections if t["h_set"] is None and t["ax"] == sec["ax"]
-                    and abs(t["o"] - sec["o"]) < 30]
-            sec["h_tpl"] = max(same)
+            sec["h_tpl"] = max(t["h_tpl"] for t in sections if t["h_set"] is None and t["ax"] == sec["ax"]
+                               and abs(t["o"] - sec["o"]) < 30)
+    lines = list(msp.query("LINE"))
+    report = []
     for sec in sections:
-        ax, top, f, bot, sgn, o = sec["ax"], sec["top"], sec["f"], sec["bot"], sec["sgn"], sec["o"]
-        lo, hi = min(top, bot), max(top, bot)
-        mid = (top + bot) / 2
-        cx, cy = (mid, o) if ax == 0 else (o, mid)
-        hf_new = hf_at(cx, cy, sec)
-        if hf_new is None:
-            hf_new = round(sec["hf"])
-        h_new = sec["h_set"]
-        if h_new is None:                          # beam not designed
-            h_new = max(sec["h_tpl"], hf_new + 10)
-        if abs(hf_new - sec["hf"]) < 0.05 and abs(h_new - sec["h"]) < 0.05:
+        ax, sgn = sec["ax"], sec["sgn"]
+        res = _outline_of(sec, lines)
+
+        def drop_dims():
+            """not a beam section (stair landings): no dimensions that could contradict the design"""
+            lo_, hi_ = min(sec["top"], sec["bot"]) - 2, max(sec["top"], sec["bot"]) + 2
+            for e in list(msp.query("DIMENSION")):
+                if e in sec["dims"] or (e.dxf.hasattr("defpoint2") and all(
+                        lo_ <= q[ax] <= hi_ and abs(q[1 - ax] - sec["o"]) < 60
+                        for q in (e.dxf.defpoint2, e.dxf.defpoint3))):
+                    msp.delete_entity(e)
+            report.append((round(sec["c"][0]), round(sec["c"][1]), None, None))
+        if res is None:
+            drop_dims()
             continue
-        # extent across the depth: hatches of the symbol
-        across = []
-        for h, bb in hatches:
-            if not bb.has_data:
-                continue
-            a0, a1 = (bb.extmin.x, bb.extmax.x) if ax == 0 else (bb.extmin.y, bb.extmax.y)
-            c0, c1 = (bb.extmin.y, bb.extmax.y) if ax == 0 else (bb.extmin.x, bb.extmax.x)
-            if a0 >= lo - 2 and a1 <= hi + 2 and min(abs(c0 - o), abs(c1 - o), 0 if c0 <= o <= c1 else 1e9) < 90:
-                across += [c0, c1]
-        if not across:                           # no hatch found: the dimensions give the extent
-            across = [min(sec["cs"]) - 40, max(sec["cs"]) + 40]
-        c_lo, c_hi = min(across + sec["cs"]) - 2, max(across + sec["cs"]) + 2
-        hf_old, h_old = sec["hf"], sec["h"]
+        comp, (c0, c1) = res
+        bot = sec["bot"]
+        us = [q[0] for c in comp for q in c]
+        top = min(us) if sgn > 0 else max(us)
+        depth = lambda u_: (u_ - top) * sgn          # depth below the top of the highest slab
+        perp = [c for c in comp if abs(c[0][0] - c[1][0]) < 0.3]
 
-        def g(t):
-            u = (t - top) * sgn                      # depth measured from the top of the slab
-            if u <= 0:
-                v = u
-            elif u <= hf_old:
-                v = u * hf_new / hf_old
-            elif u <= h_old:
-                v = hf_new + (u - hf_old) * (h_new - hf_new) / (h_old - hf_old)
-            else:
-                v = u + h_new - h_old
-            return top + sgn * v
+        def side(is_left):
+            ls = [c for c in perp if (min(c[0][1], c[1][1]) < c0 - 2 if is_left else max(c[0][1], c[1][1]) > c1 + 2)]
+            if not ls:
+                return None
+            ds = sorted({round(depth(c[0][0]), 1) for c in ls})
+            ext = min(min(c[0][1], c[1][1]) for c in ls) if is_left else max(max(c[0][1], c[1][1]) for c in ls)
+            if len(ds) < 2 or not 5 <= ds[-1] - ds[0] <= 30:
+                return None
+            return dict(off=ds[0], t=ds[-1] - ds[0], ext=ext)
+        L, R = side(True), side(False)
+        if L is None and R is None:
+            drop_dims()
+            continue
+        lo, hi = min(top, bot), max(top, bot)
 
-        def fmap(x, y, s=True):
-            return (g(x), y) if ax == 0 else (x, g(y))
+        def P(u, v):
+            d = top + sgn * u
+            return (d, v) if ax == 0 else (v, d)
+        # new slab thicknesses (slab on each side), beam depth
+        for sd, vmid in ((L, (c0 - SEC_FLANGE / 2)), (R, (c1 + SEC_FLANGE / 2))):
+            if sd is not None:
+                q = P(sd["off"] + sd["t"] / 2, vmid)
+                sd["t_new"] = hf_at(q[0], q[1], sec) or round(sd["t"])
+        hf_main = (L or R)["t_new"]
+        h_new = sec["h_set"] if sec["h_set"] is not None else max(sec["h_tpl"], hf_main + 10)
+        h_new = max(h_new, max(sd["off"] + sd["t_new"] + 10 for sd in (L, R) if sd))
+        # remove the old symbol
+        v_lo = min(L["ext"] if L else c0, c0) - 1.5
+        v_hi = max(R["ext"] if R else c1, c1) + 1.5
+        U = lambda q: q[ax]
+        V = lambda q: q[1 - ax]
 
         def inside(pts):
-            for p in pts:
-                a_, c_ = (p[0], p[1]) if ax == 0 else (p[1], p[0])
-                if not (lo - 2 <= a_ <= hi + 2 and c_lo <= c_ <= c_hi):
-                    return False
-            return True
-
-        for e in list(msp.query("LINE LWPOLYLINE HATCH DIMENSION")):
-            if id(e) in moved:
+            return all(lo - 2 <= U(q) <= hi + 2 and v_lo <= V(q) <= v_hi for q in pts)
+        for e in list(msp.query("LINE LWPOLYLINE HATCH SOLID")):
+            try:
+                bb = ezbbox.extents([e], fast=True)
+            except Exception:
                 continue
-            t = e.dxftype()
-            if t == "DIMENSION":
-                pts = [e.dxf.defpoint2, e.dxf.defpoint3] if e.dxf.hasattr("defpoint2") else []
-                if not pts or not inside(pts):
+            if bb.has_data and inside([bb.extmin, bb.extmax]):
+                msp.delete_entity(e)
+        for e in list(msp.query("DIMENSION")):
+            if e in sec["dims"] or (e.dxf.hasattr("defpoint2") and inside([e.dxf.defpoint2, e.dxf.defpoint3])):
+                msp.delete_entity(e)
+        lines = [e for e in lines if e.is_alive]
+        # new symbol, (u, v): u = depth below the top of the highest slab, v = across
+        va, vb = c0 - SEC_FLANGE, c1 + SEC_FLANGE
+        pts = []
+        if L:
+            pts += [(L["off"], va), (L["off"], c0)]
+        pts += [(0, c0), (0, c1)]
+        if R:
+            pts += [(R["off"], c1), (R["off"], vb), (R["off"] + R["t_new"], vb), (R["off"] + R["t_new"], c1)]
+        pts += [(h_new, c1), (h_new, c0)]
+        if L:
+            pts += [(L["off"] + L["t_new"], c0), (L["off"] + L["t_new"], va)]
+        clean = [pts[0]]
+        for q in pts[1:]:
+            if abs(q[0] - clean[-1][0]) > 1e-6 or abs(q[1] - clean[-1][1]) > 1e-6:
+                clean.append(q)
+        outline = [P(u, v) for u, v in clean]
+        msp.add_lwpolyline(outline, close=True, dxfattribs={"layer": "0", "color": 3, "lineweight": 35})
+        hat = msp.add_hatch(color=7, dxfattribs={"layer": "0"})
+        hat.set_pattern_fill("ANSI31", scale=2.5, angle=0.0)
+        hat.paths.add_polyline_path(outline, is_closed=True)
+        # dimensions: each side its own chain, the side of a symmetric T shows the total h
+        ang = 0 if ax == 0 else 90
+
+        def chain(sd, v_edge, v_web):
+            if sd is None:
+                return [(0, v_web), (h_new, v_web)]
+            q = [(0, v_web)] if sd["off"] > 0.5 else []
+            return q + [(sd["off"], v_edge), (sd["off"] + sd["t_new"], v_edge), (h_new, v_web)]
+        same = L and R and abs(L["off"] - R["off"]) < 0.5 and abs(L["t_new"] - R["t_new"]) < 0.5
+        left_pts = chain(L, va, c0)
+        right_pts = [(0, vb), (h_new, c1)] if same else chain(R, vb, c1)
+        for pts_, vline in ((left_pts, (va if L else c0) - SEC_DIM_OFF), (right_pts, (vb if R else c1) + SEC_DIM_OFF)):
+            for (u0, v0), (u1, v1) in zip(pts_, pts_[1:]):
+                if abs(u1 - u0) < 0.5:
                     continue
-            else:
-                try:
-                    bb = ezbbox.extents([e], fast=True)
-                except Exception:
-                    continue
-                if not bb.has_data or not inside([bb.extmin, bb.extmax]):
-                    continue
-            mover.apply(e, fmap)
-            moved.add(id(e))
-        report.append((round(cx), round(cy), hf_new, h_new))
+                d = msp.add_linear_dim(base=P(0, vline), p1=P(u0, v0), p2=P(u1, v1), angle=ang,
+                                       dimstyle=SEC_DIMSTYLE, dxfattribs={"layer": "!Dimension"})
+                d.render()
+        report.append((round(sec["c"][0]), round(sec["c"][1]), hf_main, h_new))
     return report
+
 
 
 
@@ -1047,6 +1138,57 @@ def add_size_table(msp, x0, y0, title, rows, h=12.0):
         msp.add_line((x0, y), (x0 + w1 + w2, y), dxfattribs={"layer": "text"})
     for x in (x0, x0 + w1, x0 + w1 + w2):
         msp.add_line((x, y0), (x, y), dxfattribs={"layer": "text"})
+
+
+PLAN_DIMSTYLE = "RC_PLAN"
+
+
+def plan_dimensions(doc, msp, X, Y, d, hall_y, room_x):
+    """Replace the dimensions of the template (stretched, with overlapping texts) by
+    clean chains: outer faces and axes on the four sides, the overall size, the
+    secondary beams of the hall, the panels of the meeting room and the balconies."""
+    if PLAN_DIMSTYLE not in doc.dimstyles:
+        doc.dimstyles.new(PLAN_DIMSTYLE, dxfattribs={
+            "dimtxt": 10.0, "dimasz": 5.0, "dimblk": "OBLIQUE", "dimexo": 0.0, "dimexe": 4.0, "dimgap": 2.0,
+            "dimdec": 1, "dimzin": 8, "dimdsep": ord("."), "dimtad": 1, "dimtih": 0, "dimtoh": 0,
+            "dimtxsty": "Standard", "dimlunit": 2, "dimtmove": 2, "dimclrt": 7, "dimclrd": 3, "dimclre": 3})
+    for e in list(msp.query("DIMENSION")):
+        if e.dxf.get("dimstyle", "") != SEC_DIMSTYLE:
+            msp.delete_entity(e)
+    t = 12.5
+    attrs = {"layer": "!Dimension"}
+
+    def chain(pts, c, horizontal, ext=15.0):
+        """dimensions between consecutive points (x for horizontal chains, y for vertical)
+        on the line c; short extension lines of length ext towards the plan"""
+        pts = sorted(set(round(v, 1) for v in pts))
+        for a, b in zip(pts, pts[1:]):
+            if b - a < 1.0:
+                continue
+            if horizontal:
+                p1, p2, base, ang = (a, c - ext), (b, c - ext), (a, c), 0
+            else:
+                p1, p2, base, ang = (c - ext, a), (c - ext, b), (c, a), 90
+            dd = msp.add_linear_dim(base=base, p1=p1, p2=p2, angle=ang, dimstyle=PLAN_DIMSTYLE, dxfattribs=attrs)
+            dd.render()
+    xs = [X[k] for k in ("1", "2", "3", "4", "5'", "5", "6", "7")]
+    ys = [Y[k] for k in ("A", "B", "C", "D", "E")]
+    x0, x1 = X["1"] - t, X["7"] + t
+    y0, y1 = Y["A"] - t, Y["E"] + t
+    yb = Y["A"] - t - d                      # free edge of the balconies
+    # outer chains: faces + axes (inner line), overall size (outer line)
+    top = Y["E"] + (T_CORE_FACE - T_Y["E"]) + 1.25 * d      # free edge of the canopy
+    chain([x0] + xs + [x1], top + 40, True, ext=-15.0)
+    chain([x0, x1], top + 95, True, ext=-15.0)
+    chain([x0] + xs + [x1], yb - 60, True)
+    chain([x0, x1], yb - 115, True)
+    chain([y0] + ys + [y1], x0 - 80, False)
+    chain([y0, y1], x0 - 135, False)
+    chain([yb, y0] + ys + [y1], x1 + 80, False, ext=-15.0)
+    chain([yb, y1], x1 + 135, False, ext=-15.0)
+    # hall: secondary beams (A ... C ... E) and meeting room: panels (5' ... 7)
+    chain(hall_y, X["1"] + 0.80 * (X["2"] - X["1"]), False, ext=0.0)
+    chain(room_x, Y["E"] - 0.33 * (Y["E"] - Y["D"]), True, ext=0.0)
 
 
 def slab_labels(msp):
@@ -1076,14 +1218,32 @@ def slab_labels(msp):
 def section_marks(doc, msp, X, Y, hf_by_slab, depths, n_half):
     """Slab thickness and beam depth of every beam section mark from the design:
     depths = dict(hall=B5-B9, facade=B1/B10, B15=..., B21=...) [cm]."""
+    # section marks inserted as blocks (meeting room, stairs): explode them so they are redrawn too
+    for _ in range(3):
+        ins = [e for e in msp.query("INSERT") if e.dxf.layer == "! Plochi sech" and abs(e.dxf.insert.x) < 1e5]
+        if not ins:
+            break
+        for e in ins:
+            e.explode()
     labels = [(n, p) for n, p in slab_labels(msp) if n in hf_by_slab]
     half = Y["C"] - Y["A"]
     hall_beams = [Y["A"] + i * half / n_half for i in range(1, n_half)] + [Y["C"]] + \
                  [Y["C"] + i * half / n_half for i in range(1, n_half)]
 
+    # slab fields bounded by the axes: a flange takes the thickness of the slab label in its field
+    fields = [(X["1"], X["3"], Y["A"], Y["E"]), (X["5'"], X["7"], Y["D"], Y["E"]), (X["4"], X["5'"], Y["D"], Y["E"]),
+              (X["4"], X["7"], Y["B"], Y["D"]), (X["4"], X["7"], Y["A"], Y["B"]),
+              (X["4"], X["7"], Y["A"] - 400.0, Y["A"]), (X["3"], X["4"], Y["E"], Y["E"] + 600.0)]
+
     def hf_at(x, y, sec):
         if not labels:
             return None
+        for fx0, fx1, fy0, fy1 in fields:
+            if fx0 < x < fx1 and fy0 < y < fy1:
+                inside = [(n, p) for n, p in labels if fx0 < p.x < fx1 and fy0 < p.y < fy1]
+                if inside:
+                    n, p = min(inside, key=lambda t: (t[1] - Vec2(x, y)).magnitude)
+                    return hf_by_slab[n]
         n, p = min(labels, key=lambda t: (t[1] - Vec2(x, y)).magnitude)
         return hf_by_slab[n] if (p - Vec2(x, y)).magnitude < 700 else None
 
@@ -1101,7 +1261,7 @@ def section_marks(doc, msp, X, Y, hf_by_slab, depths, n_half):
             return depths["B21"]
         return None
 
-    return update_sections(doc, msp, find_sections(msp), hf_at, depth_of)
+    return rebuild_sections(doc, msp, find_sections(msp), hf_at, depth_of)
 
 
 # =============================================================================
@@ -1284,6 +1444,8 @@ def redraw(template_path, a, b, c, d, level, hf_by_slab=None, size_rows=None, be
     if hf_by_slab:                        # keys = final slab numbers
         update_slab_thickness(doc, msp, hf_by_slab)
         sec_report = section_marks(doc, msp, X, Y, hf_by_slab, beam_depths or {}, n_half)
+        hall_y_ = [Y["A"]] + hall_new[:n_half - 1] + [Y["C"]] + hall_new[n_half - 1:] + [Y["E"]]
+        plan_dimensions(doc, msp, X, Y, d, hall_y_, q)
     if size_rows:
         add_size_table(msp, X["7"] + 400.0, Y["E"] + 20.0,
                        "Element sizes (from the calculations)", size_rows)
