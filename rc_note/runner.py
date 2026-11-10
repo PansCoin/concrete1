@@ -11,7 +11,7 @@ from .design import NullNote
 from .engine import fmt
 from .note import Note
 from .plots import Plotter
-from .project import Geometry, Inputs, HF_MIN
+from .project import Geometry, Inputs, HF_MIN, HF_SET, hf_values, hf_round
 
 
 class ProjectRun:
@@ -25,22 +25,26 @@ class ProjectRun:
         self.warn = []        # messages for the user (not written in the note)
 
 
-def auto_size(nt, fn, P, start, given=0, step=1, maxsteps=15, label=""):
+def auto_size(nt, fn, P, start, given=0, step=1, maxsteps=15, label="", values=None):
     """Run fn(NullNote) with increasing size until all checks pass, then
-    write it into the real note."""
+    write it into the real note. values = the sizes to try (e.g. the slab
+    thicknesses 12, 14, 16, 18, 20 cm); otherwise start, start + step, ..."""
     if given:
         fn(nt, P, given)
         return given
-    v = start
-    for _ in range(maxsteps):
+    seq = list(values) if values is not None else [start + i * step for i in range(maxsteps + 1)]
+    v = seq[-1]
+    for cand in seq:
         try:
-            ok = fn(NullNote(), P, v)
+            ok = fn(NullNote(), P, cand)
         except Exception:
             ok = False
         if ok:
+            v = cand
             break
-        v += step
     P.log.append(f"{label}: {fmt(v)}")
+    if values is not None and v > HF_SET[-1]:
+        P.warn.append(f"{label} = {fmt(v)} cm - more than {fmt(HF_SET[-1])} cm is needed")
     fn(nt, P, v)
     return v
 
@@ -86,6 +90,9 @@ def title_page(nt, P):
          f"secondary beams every {fmt(G.s_r)} cm (l/l = {fmt(inp.b / G.s_r)} ≥ 2).")
     nt.p(f"Storey heights: first storey h_b = {fmt(inp.hb)} cm, upper storeys h_s = {fmt(inp.hs)} cm "
          f"({inp.n_floors} storeys). Level of the designed slab: +{fmt(inp.hb / 100)} m.")
+    nt.p(f"Slab thicknesses: {', '.join(fmt(h) for h in HF_SET[:-1])} or {fmt(HF_SET[-1])} cm - every slab "
+         "(also the stairs and the canopy) takes the smallest of these values for which all its checks "
+         "are satisfied.")
 
 
 def build(inp: Inputs, out_path: str, workdir=None, sections=None, verbose=True,
@@ -99,18 +106,26 @@ def build(inp: Inputs, out_path: str, workdir=None, sections=None, verbose=True,
     P.drawings = None
     for k in ("hf_corridor", "hf_hall", "hf_room", "hf_office", "hf_stair", "hf_canopy"):
         v = getattr(inp, k)
-        if v and v < HF_MIN:                      # no slab thinner than 12 cm
-            P.warn.append(f"{k} = {fmt(v)} cm < {fmt(HF_MIN)} cm - raised to {fmt(HF_MIN)} cm")
-            setattr(inp, k, HF_MIN)
+        if v:                                     # only 12, 14, 16, 18 or 20 cm
+            h = hf_round(max(v, HF_MIN))
+            if h != v:
+                P.warn.append(f"{k} = {fmt(v)} cm is not one of the slab thicknesses "
+                              f"{'/'.join(fmt(x) for x in HF_SET)} cm - {fmt(h)} cm used")
+                setattr(inp, k, h)
     nt = Note()
     title_page(nt, P)
     sel = sections or ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI"]
     steps = [
-        ("I", lambda: auto_size(nt, sec_slabs.section_I, P, HF_MIN, inp.hf_corridor, label="h_f slab I")),
-        ("II", lambda: auto_size(nt, sec_slabs.section_II, P, HF_MIN, inp.hf_hall, label="h_f slab II")),
-        ("III", lambda: auto_size(nt, sec_slabs.section_III, P, HF_MIN, inp.hf_room, label="h_f slab III")),
-        ("IV", lambda: auto_size(nt, sec_slabs.section_IV, P, HF_MIN, inp.hf_office, label="h_f slab IV")),
-        ("V", lambda: auto_size(nt, sec_members.section_V, P, max(14, HF_MIN), inp.hf_stair, label="h stair")),
+        ("I", lambda: auto_size(nt, sec_slabs.section_I, P, HF_MIN, inp.hf_corridor, label="h_f slab I",
+                                 values=hf_values())),
+        ("II", lambda: auto_size(nt, sec_slabs.section_II, P, HF_MIN, inp.hf_hall, label="h_f slab II",
+                                  values=hf_values())),
+        ("III", lambda: auto_size(nt, sec_slabs.section_III, P, HF_MIN, inp.hf_room, label="h_f slab III",
+                                   values=hf_values())),
+        ("IV", lambda: auto_size(nt, sec_slabs.section_IV, P, HF_MIN, inp.hf_office, label="h_f slab IV",
+                                  values=hf_values())),
+        ("V", lambda: auto_size(nt, sec_members.section_V, P, 14.0, inp.hf_stair, label="h stair",
+                                 values=hf_values(14.0))),
         ("VI", lambda: sec_members.section_VI(nt, P)),
         ("VII", lambda: sec_members.section_VII(nt, P)),
         ("VIII", lambda: sec_members.section_VIII(nt, P)),

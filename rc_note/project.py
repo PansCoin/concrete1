@@ -41,7 +41,7 @@ class Inputs:
     hf_room: float = 0
     hf_office: float = 0
     hf_stair: float = 0
-    hf_canopy: float = 15
+    hf_canopy: float = 0
     B5_b: float = 25; B5_h: float = 0
     B21_b: float = 25; B21_h: float = 0
     B12_b: float = 25; B12_h: float = 0
@@ -64,6 +64,22 @@ class Inputs:
 
 HF_MIN = 12.0        # cm, minimum thickness of every slab
 HF_TIP = 12.0        # cm, thickness of the balconies at the free edge
+HF_SET = (12.0, 14.0, 16.0, 18.0, 20.0)   # cm, the slab thicknesses used in the project
+
+
+def hf_values(start=HF_MIN):
+    """Slab thicknesses to try, from the smallest one >= start: 12, 14, 16, 18, 20 cm
+    (22, 24 ... only if 20 cm is not enough - reported as a warning)."""
+    vals = [h for h in HF_SET if h >= start - 1e-9]
+    return vals + [HF_SET[-1] + 2.0 * i for i in range(1, 6)]
+
+
+def hf_round(v):
+    """The smallest slab thickness of the set that is >= v."""
+    for h in hf_values():
+        if h >= v - 1e-9:
+            return h
+    return v
 
 
 def ceil_to(v, step):

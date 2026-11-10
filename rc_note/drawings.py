@@ -40,7 +40,8 @@ def size_rows(P):
         rows.append((f"Balconies {G.no_balcony[0]}, {G.no_balcony[1]}",
                      f"h_f = {fmt(res['IV']['hf'])} -> {fmt(HF_TIP)} cm, l = {fmt(inp.d)} cm"))
     if "VII" in res:
-        rows.append((f"Canopy slab {G.no_stairs[0]}", f"h_f = {fmt(inp.hf_canopy)} cm, l = {fmt(1.25 * inp.d)} cm"))
+        hfc = res["VII"].get("canopy", {}).get("hf", inp.hf_canopy)
+        rows.append((f"Canopy slab {G.no_stairs[0]}", f"h_f = {fmt(hfc)} cm, l = {fmt(1.25 * inp.d)} cm"))
     if "V" in res:
         v = res["V"]
         rows.append((f"Stairs {G.no_stairs[1]}, {G.no_stairs[2]}",

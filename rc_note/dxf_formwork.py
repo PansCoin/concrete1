@@ -1304,55 +1304,285 @@ def add_size_table(msp, x0, y0, title, rows, h=12.0):
 
 
 PLAN_DIMSTYLE = "RC_PLAN"
+DIM_TXT = 12.5                 # text of the dimensions: 2.5 mm on the paper at 1:50
+DIM_GAP = 2.5
+FACE_LAYERS = ("035", "!Column", "!Armirovka")        # outlines of walls, beams and columns
+FACE_GAP = 80.0                # a face line interrupted over less than this still counts
 
 
-def plan_dimensions(doc, msp, X, Y, d, hall_y, room_x):
-    """Replace the dimensions of the template (stretched, with overlapping texts) by
-    clean chains: outer faces and axes on the four sides, the overall size, the
-    secondary beams of the hall, the panels of the meeting room and the balconies."""
-    if PLAN_DIMSTYLE not in doc.dimstyles:
-        doc.dimstyles.new(PLAN_DIMSTYLE, dxfattribs={
-            "dimtxt": 10.0, "dimasz": 5.0, "dimblk": "OBLIQUE", "dimexo": 0.0, "dimexe": 4.0, "dimgap": 2.0,
-            "dimdec": 1, "dimzin": 8, "dimdsep": ord("."), "dimtad": 1, "dimtih": 0, "dimtoh": 0,
-            "dimtxsty": "Standard", "dimlunit": 2, "dimtmove": 2, "dimclrt": 7, "dimclrd": 3, "dimclre": 3})
+def _plan_dimstyle(doc):
+    attrs = {"dimtxt": DIM_TXT, "dimasz": 8.0, "dimblk": "OBLIQUE", "dimexo": 0.0, "dimexe": 4.0,
+             "dimgap": DIM_GAP, "dimdec": 1, "dimzin": 8, "dimdsep": ord("."), "dimtad": 1, "dimtih": 0,
+             "dimtoh": 0, "dimtxsty": "Standard", "dimlunit": 2, "dimtmove": 2, "dimclrt": 7,
+             "dimclrd": 3, "dimclre": 3}
+    if PLAN_DIMSTYLE in doc.dimstyles:
+        ds = doc.dimstyles.get(PLAN_DIMSTYLE)
+        for k, v in attrs.items():
+            ds.dxf.set(k, v)
+    else:
+        doc.dimstyles.new(PLAN_DIMSTYLE, dxfattribs=attrs)
+
+
+class _FaceIndex:
+    """Axis-parallel edges of the walls, beams and columns, grouped by their constant
+    coordinate (snapped to the 0.5 cm grid of the axes), as merged intervals."""
+
+    def __init__(self, msp, offx, offy):
+        self.offx, self.offy = offx, offy
+        vert, horz = {}, {}
+        for e in msp.query("LINE LWPOLYLINE"):
+            if e.dxf.layer not in FACE_LAYERS:
+                continue
+            if e.dxftype() == "LINE":
+                segs = [(Vec2(e.dxf.start), Vec2(e.dxf.end))]
+            else:
+                pts = [Vec2(q[0], q[1]) for q in e.get_points("xy")]
+                if e.closed and len(pts) > 2:
+                    pts.append(pts[0])
+                segs = list(zip(pts, pts[1:]))
+            for p, q in segs:
+                if abs(p.x - q.x) < 0.05 and abs(p.y - q.y) > 0.05:
+                    vert.setdefault(self.sx(p.x), []).append((min(p.y, q.y), max(p.y, q.y)))
+                elif abs(p.y - q.y) < 0.05 and abs(p.x - q.x) > 0.05:
+                    horz.setdefault(self.sy(p.y), []).append((min(p.x, q.x), max(p.x, q.x)))
+        self.vert = {k: self._merge(v) for k, v in vert.items()}
+        self.horz = {k: self._merge(v) for k, v in horz.items()}
+
+    def sx(self, x):
+        return round(self.offx + round((x - self.offx) * 2) / 2, 2)
+
+    def sy(self, y):
+        return round(self.offy + round((y - self.offy) * 2) / 2, 2)
+
+    @staticmethod
+    def _merge(iv):
+        out = []
+        for a, b in sorted(iv):
+            if out and a <= out[-1][1] + 0.5:
+                out[-1][1] = max(out[-1][1], b)
+            else:
+                out.append([a, b])
+        return out
+
+    def faces(self, horizontal, c, lo, hi, bridge=True):
+        """faces crossed by the line of a chain (y = c for a chain along x, x = c for a
+        chain along y) between lo and hi; with bridge, a face line with a gap of less
+        than FACE_GAP at c (section mark, old label) counts as well"""
+        group = self.vert if horizontal else self.horz
+        out = []
+        for k, iv in group.items():
+            if not lo - 0.5 <= k <= hi + 0.5:
+                continue
+            hit = any(a - 0.05 <= c <= b + 0.05 for a, b in iv)
+            if not hit and bridge:
+                hit = any(b1 - a1 >= 10 and b2 - a2 >= 10 and b1 < c < a2 and a2 - b1 <= FACE_GAP
+                          for (a1, b1), (a2, b2) in zip(iv, iv[1:]))
+            if hit:
+                out.append(k)
+        return sorted(out)
+
+
+def _dim_text(v):
+    return f"{v:.1f}".rstrip("0").rstrip(".")
+
+
+def _text_len(t, h=DIM_TXT):
+    return sum(0.35 * h if ch in ".," else 0.68 * h for ch in t)
+
+
+def _chain_texts(pts, c, horizontal):
+    """texts of a chain (one per segment): dict(a, b, m = centre along the chain, box, loc);
+    texts above a chain along x, left of a chain along y; the text of a segment that is too
+    short goes beside it, on the side of the longer neighbour"""
+    h = DIM_TXT
+    out = [dict(a=a, b=b, s=_dim_text(b - a), m=(a + b) / 2) for a, b in zip(pts, pts[1:]) if b - a >= 1.0]
+    for t in out:
+        t["w"] = _text_len(t["s"])
+    for i, t in enumerate(out):
+        if t["b"] - t["a"] >= t["w"] + 3.0:
+            continue
+        after = (out[i + 1]["b"] - out[i + 1]["a"] - out[i + 1]["w"]) if i + 1 < len(out) else 1e9
+        before = (out[i - 1]["b"] - out[i - 1]["a"] - out[i - 1]["w"]) if i > 0 else 1e9
+        t["m"] = t["b"] + 2.0 + t["w"] / 2 if after >= before else t["a"] - 2.0 - t["w"] / 2
+    for t in out:
+        m, w = t["m"], t["w"]
+        if horizontal:
+            t["box"] = (m - w / 2, c + DIM_GAP, m + w / 2, c + DIM_GAP + h)
+            t["loc"] = (m, c + DIM_GAP + h / 2)
+        else:
+            t["box"] = (c - DIM_GAP - h, m - w / 2, c - DIM_GAP, m + w / 2)
+            t["loc"] = (c - DIM_GAP - h / 2, m)
+    return out
+
+
+def _text_cost(box, near, near_h):
+    return 10 * sum(_overlap(box, o, 2.0) for o in near) + 4 * sum(_hits(box, o, 1.0) for o in near_h)
+
+
+def _slide(tx, c, horizontal, near, near_h):
+    """moves the text of a dimension along its segment to the nearest free place (if it
+    covers something where it is); returns the remaining cost"""
+    cost = _text_cost(tx["box"], near, near_h)
+    a, b, w = tx["a"], tx["b"], tx["w"]
+    if not cost or not a < tx["m"] < b:
+        return cost
+    box_at = (lambda m: (m - w / 2, c + DIM_GAP, m + w / 2, c + DIM_GAP + DIM_TXT)) if horizontal else \
+        (lambda m: (c - DIM_GAP - DIM_TXT, m - w / 2, c - DIM_GAP, m + w / 2))
+    m0 = tx["m"]
+    best = (cost, m0)
+    if b - a < w + 8.0:                          # short segment: the text beside it
+        for m in (b + 2.0 + w / 2, a - 2.0 - w / 2):
+            cst = _text_cost(box_at(m), near, near_h)
+            if cst < best[0]:
+                best = (cst, m)
+    else:                                        # along the segment
+        lo_m, hi_m = a + w / 2 + 3.0, b - w / 2 - 3.0
+        k = 1
+        while best[0]:
+            ms = [m for m in (m0 - 5.0 * k, m0 + 5.0 * k) if lo_m <= m <= hi_m]
+            if not ms:
+                break
+            for m in ms:
+                cst = _text_cost(box_at(m), near, near_h)
+                if cst < best[0]:
+                    best = (cst, m)
+            k += 1
+    m = best[1]
+    if m != m0:
+        tx["m"] = m
+        if horizontal:
+            tx["box"] = (m - w / 2, c + DIM_GAP, m + w / 2, c + DIM_GAP + DIM_TXT)
+            tx["loc"] = (m, c + DIM_GAP + DIM_TXT / 2)
+        else:
+            tx["box"] = (c - DIM_GAP - DIM_TXT, m - w / 2, c - DIM_GAP, m + w / 2)
+            tx["loc"] = (c - DIM_GAP - DIM_TXT / 2, m)
+    return best[0]
+
+
+def _draw_chain(msp, texts, c, horizontal, org):
+    """the dimensions of a chain; org = position (across the chain) of the measured points,
+    where the extension lines start"""
+    for t in texts:
+        a, b = t["a"], t["b"]
+        if horizontal:
+            p1, p2, base, ang = (a, org), (b, org), (a, c), 0
+        else:
+            p1, p2, base, ang = (org, a), (org, b), (c, a), 90
+        dd = msp.add_linear_dim(base=base, p1=p1, p2=p2, angle=ang, location=t["loc"],
+                                dimstyle=PLAN_DIMSTYLE, dxfattribs={"layer": "!Dimension"})
+        dd.render()
+
+
+def plan_dimensions(doc, msp, X, Y, d, hall_y, room_x, boxes=()):
+    """Dimension chains of the formwork plan (the dimensions of the template are removed,
+    they do not fit the new grid):
+      outside, on every side: faces of the walls, columns and openings on the facade, the
+      axes (with the outer faces), the overall size; on the left also the beams of the hall,
+      above the facade E the beams of the meeting room;
+      inside: the beams of the hall (one chain per bay), the offices / corridor / lobby with
+      the balcony, the beams of the offices, the beams of the meeting room and the columns
+      along the corridor (axes B and D).
+    The chains inside are placed where neither their line nor their texts cover a slab
+    label, a level mark, a section mark or a name."""
+    _plan_dimstyle(doc)
     for e in list(msp.query("DIMENSION")):
         if e.dxf.get("dimstyle", "") != SEC_DIMSTYLE:
             msp.delete_entity(e)
+    fi = _FaceIndex(msp, X["1"] % 0.5, Y["A"] % 0.5)
     t = 12.5
-    attrs = {"layer": "!Dimension"}
-
-    def chain(pts, c, horizontal, ext=15.0):
-        """dimensions between consecutive points (x for horizontal chains, y for vertical)
-        on the line c; short extension lines of length ext towards the plan"""
-        pts = sorted(set(round(v, 1) for v in pts))
-        for a, b in zip(pts, pts[1:]):
-            if b - a < 1.0:
-                continue
-            if horizontal:
-                p1, p2, base, ang = (a, c - ext), (b, c - ext), (a, c), 0
-            else:
-                p1, p2, base, ang = (c - ext, a), (c - ext, b), (c, a), 90
-            dd = msp.add_linear_dim(base=base, p1=p1, p2=p2, angle=ang, dimstyle=PLAN_DIMSTYLE, dxfattribs=attrs)
-            dd.render()
     xs = [X[k] for k in ("1", "2", "3", "4", "5'", "5", "6", "7")]
     ys = [Y[k] for k in ("A", "B", "C", "D", "E")]
     x0, x1 = X["1"] - t, X["7"] + t
     y0, y1 = Y["A"] - t, Y["E"] + t
     yb = Y["A"] - t - d                      # free edge of the balconies
-    # outer chains: faces + axes (inner line), overall size (outer line)
     top = Y["E"] + (T_CORE_FACE - T_Y["E"]) + 1.25 * d      # free edge of the canopy
-    chain([x0] + xs + [x1], top + 40, True, ext=-15.0)
-    chain([x0, x1], top + 95, True, ext=-15.0)
-    chain([x0] + xs + [x1], yb - 60, True)
-    chain([x0, x1], yb - 115, True)
-    # left side (exhibition hall): secondary beams, axes, overall size
-    chain([y0] + list(hall_y) + [y1], x0 - 45, False)
-    chain([y0] + ys + [y1], x0 - 100, False)
-    chain([y0, y1], x0 - 155, False)
-    chain([yb, y0] + ys + [y1], x1 + 80, False, ext=-15.0)
-    chain([yb, y1], x1 + 135, False, ext=-15.0)
-    # meeting room: panels (5' ... 7), above the facade on axis E
-    chain(room_x, y1 + 62.5, True, ext=-15.0)
+    step, ext = 40.0, 15.0
+
+    def outer(pts, c, horizontal, towards):
+        """chain outside the plan; towards = +1/-1: direction of the plan seen from the chain"""
+        pts = sorted(set(round(v, 2) for v in pts))
+        _draw_chain(msp, _chain_texts(pts, c, horizontal), c, horizontal, c + towards * ext)
+
+    # ---------------------------------------------------------------- outside
+    outer(fi.faces(True, Y["E"], x0, x1, False), top + step, True, -1)       # facade E
+    outer([x0] + xs + [x1], top + 2 * step, True, -1)
+    outer([x0, x1], top + 3 * step, True, -1)
+    outer(fi.faces(True, Y["A"], x0, x1, False), yb - step, True, +1)        # facade A
+    outer([x0] + xs + [x1], yb - 2 * step, True, +1)
+    outer([x0, x1], yb - 3 * step, True, +1)
+    outer(fi.faces(False, X["1"], y0, y1, False), x0 - step, False, +1)      # facade 1
+    outer([y0] + list(hall_y) + [y1], x0 - 2 * step, False, +1)              # beams of the hall
+    outer([y0] + ys + [y1], x0 - 3 * step, False, +1)
+    outer([y0, y1], x0 - 4 * step, False, +1)
+    outer(fi.faces(False, X["7"], yb, y1, False), x1 + step, False, -1)      # facade 7 + balcony
+    outer([yb, y0] + ys + [y1], x1 + 2 * step, False, -1)
+    outer([yb, y1], x1 + 3 * step, False, -1)
+    outer(room_x, y1 + 62.5, True, -1)                                       # beams of the meeting room
+
+    # ---------------------------------------------------------------- inside
+    hard = [tuple(b) for b in boxes]                 # section marks
+    soft = text_boxes(msp)                           # names of beams, columns, walls ...
+    for L in _label_clusters(doc, msp):              # slab labels: circle and texts (the span
+        for e in L["ents"]:                          # lines through the circle may be crossed)
+            for v in (e.virtual_entities() if e.dxftype() == "INSERT" else [e]):
+                bb = ezbbox.extents([v], fast=True)
+                if bb.has_data:
+                    (soft if v.dxftype() == "LINE" else hard).append(
+                        (bb.extmin.x - 3, bb.extmin.y - 3, bb.extmax.x + 3, bb.extmax.y + 3))
+    for lv in _level_clusters(msp)[0]:               # level marks
+        hard.append(_level_box(lv["c"]))
+    hatches = []
+    for h in msp.query("HATCH"):
+        if not h.dxf.solid_fill:
+            hatches += _hatch_polygons(h)
+
+    def span(c0, c1):
+        n = max(1, int((c1 - c0) / 5.0))
+        return [c0 + (c1 - c0) * i / n for i in range(n + 1)]
+
+    def place(horizontal, lo, hi, cands, pref, scan_at=None, org=None):
+        """the chain at the free position (of cands) nearest to pref; its points are the
+        faces crossed at that position (or at scan_at), it must reach lo and hi"""
+        best = None
+        for c in cands:
+            pts = fi.faces(horizontal, c if scan_at is None else scan_at, lo, hi)
+            if len(pts) < 2:
+                continue
+            texts = _chain_texts(pts, c, horizontal)
+            line = (lo, c - 1.0, hi, c + 1.0) if horizontal else (c - 1.0, lo, c + 1.0, hi)
+            pen = 100 * ((abs(pts[0] - lo) > 2.0) + (abs(pts[-1] - hi) > 2.0))
+            pen += 10 * sum(_overlap(line, o) for o in hard) + 2 * sum(_overlap(line, o) for o in soft)
+            band = (lo, c - 5.0, hi, c + 25.0) if horizontal else (c - 25.0, lo, c + 5.0, hi)
+            near = [o for o in hard + soft if _overlap(band, o)]
+            near_h = [o for o in hatches if _overlap(band, _bb(o))]
+            for tx in texts:
+                pen += _slide(tx, c, horizontal, near, near_h)
+            key = (pen, abs(c - pref))
+            if best is None or key < best[0]:
+                best = (key, c, texts, line)
+        if best is None:
+            return None
+        key, c, texts, line = best
+        _draw_chain(msp, texts, c, horizontal, c if org is None else (org(c) if callable(org) else org))
+        hard.extend(tx["box"] for tx in texts)
+        soft.append(line)
+        return key[0], c, [texts[0]["a"]] + [tx["b"] for tx in texts]
+
+    report = []
+    for xa, xb in ((X["1"], X["2"]), (X["2"], X["3"])):                     # hall, one chain per bay
+        report.append(("hall bay", place(False, y0, y1, span(xa + 50, xb - 50), xa + 0.57 * (xb - xa))))
+    report.append(("offices-lobby", place(False, yb, Y["E"] - t, span(X["4"] + 40, X["5'"] - 40),
+                                          X["4"] + 0.6 * (X["5'"] - X["4"]))))
+    report.append(("offices across", place(True, X["4"] - t, x1, span(Y["A"] + 40, Y["B"] - 40),
+                                           Y["A"] + 0.7 * (Y["B"] - Y["A"]))))
+    report.append(("meeting room", place(True, X["4"] - t, x1, span(Y["D"] + 40, Y["E"] - 40),
+                                         Y["D"] + 0.15 * (Y["E"] - Y["D"]))))
+    for k, sgn in (("B", +1), ("D", -1)):       # columns on B and D: chain on either side of the beam
+        yk = Y[k]
+        cands = span(yk + t + 25, yk + t + 140) + span(yk - t - 140, yk - t - 25)
+        report.append((f"columns {k}", place(True, X["4"] - t, x1, cands, yk + sgn * (t + 35), scan_at=yk,
+                                             org=lambda c, yk=yk: yk + (t if c > yk else -t))))
+    return report
 
 
 def slab_labels(msp):
@@ -2203,7 +2433,7 @@ def redraw(template_path, a, b, c, d, level, hf_by_slab=None, size_rows=None, be
         marks = section_marks(doc, msp, X, Y, hf_by_slab, beam_depths or {}, n_half,
                               hall_y=hall_y_, room_x=q, y_b17=y_b17)
         annotate_panels(doc, msp, X, Y, hall_y_, q, y_b17, marks["boxes"])
-        plan_dimensions(doc, msp, X, Y, d, hall_y_, q)
+        plan_dimensions(doc, msp, X, Y, d, hall_y_, q, marks["boxes"])
     if size_rows:
         add_size_table(msp, X["7"] + 400.0, Y["E"] + 20.0,
                        "Element sizes (from the calculations)", size_rows)

@@ -71,9 +71,42 @@ def _styles(doc):
         doc.layers.add(LAYER, color=7, lineweight=35)
 
 
+# lengths on the paper [mm] (ISO 128): dashed line = dash 3, gap 1.2;
+# dash-dot line (axes) = long dash 12, gap 2, dot 0.5, gap 2
+LT_PAPER = {"dashed": (3.0, -1.2), "axis": (12.0, -2.0, 0.5, -2.0)}
+
+
+def set_linetypes(doc, scale):
+    """Every dashed (2 elements) and dash-dot (more elements) linetype of the drawing gets
+    the lengths of LT_PAPER on the paper at the scale 1:scale (drawing unit = 1 cm);
+    LTSCALE = 1 and no entity has its own linetype scale, so the lines print alike in
+    every CAD program and in the PDF."""
+    k = scale / 10.0                                  # drawing units per mm of paper
+    for name, kind in (("RC_DASHED", "dashed"), ("RC_AXIS", "axis")):
+        if name not in doc.linetypes:
+            doc.linetypes.add(name, pattern=[1.0, 0.5, -0.5] if kind == "dashed" else [1.0, 0.5, -0.2, 0.0, -0.3],
+                              description="Dashed __ __" if kind == "dashed" else "Axis ___ . ___")
+    for lt in doc.linetypes:
+        try:
+            elems = [t.value for t in lt.pattern_tags.tags if t.code == 49]
+        except AttributeError:
+            continue
+        if len(elems) < 2:
+            continue
+        pat = [v * k for v in LT_PAPER["dashed" if len(elems) == 2 else "axis"]]
+        lt.setup_pattern([sum(abs(v) for v in pat)] + pat)
+    doc.header["$LTSCALE"] = 1.0
+    doc.header["$CELTSCALE"] = 1.0
+    for layout in [doc.modelspace()] + list(doc.blocks):
+        for e in layout:
+            if e.dxf.hasattr("ltscale") and abs(e.dxf.ltscale - 1.0) > 1e-9:
+                e.dxf.ltscale = 1.0
+
+
 def add_sheet(doc, msp, box, scale, inp, title, min_paper=None):
     """Frame and title block around the drawing extents box (drawing units). Returns a Sheet."""
     _styles(doc)
+    set_linetypes(doc, scale)
     k = scale / 10.0                                  # drawing units per mm of paper
     x0, y0, x1, y1 = box
     cw, ch = (x1 - x0) / k, (y1 - y0) / k

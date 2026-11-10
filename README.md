@@ -74,9 +74,17 @@ The plan is laid out on one regular pattern:
   mark at 1/4 of the height; two-way slabs – label in the centre, level mark above right of it. A
   row of panels is shifted together when something is in the way. Panels without a level mark get
   one, level symbols without a text and loose pieces of the template are removed.
-* dimension chains outside the plan: faces + axes and the overall size on all four sides, the
-  beams of the hall on the left (closest to the plan), the panels of the meeting room above axis E
-  and the balconies on the right.
+* dimension chains (text 2.5 mm on the paper), outside the plan on all four sides: the faces of the
+  walls, columns and openings on the facade, the axes with the outer faces, the overall size; on
+  the left also the beams of the hall, above axis E the beams of the meeting room, on the right the
+  balconies. Inside the plan: the beams of the hall (one chain per bay: beam widths and clear spans),
+  balcony / offices / corridor / lobby on one line, the beams of the offices, the beams of the
+  meeting room and the columns along the corridor (axes B and D). The faces are taken from the
+  drawn outline; every chain inside is put where neither its line nor its texts cover a slab
+  label, a level mark, a section mark or a name (a text that would is moved along its segment).
+* linetypes at the scale of the sheet (all drawings): axes dash-dot (dash 12 mm, gap 2 mm, dot),
+  hidden edges dashed (dash 3 mm, gap 1.2 mm) on the paper, for 1:50, 1:25 and 1:10 alike;
+  LTSCALE = 1, so CAD programs and the PDF show the same pattern.
 
 **Reinforcement plans** – `rc_note/rebar.py` (bar and mesh positions) and `rc_note/dxf_rebar.py`
 (drawing). The background is only the outline of the structure (beams, walls, columns, axes and
@@ -140,8 +148,11 @@ crossing; top bars Φ8/20 at both supports over 0.2·l; distribution bars Φ8/20
 bar Φ8/30 (riser + tread, anchored in the waist) and one bar Φ8 at the nosing; cut 1-1 across the
 flight; the bars drawn separately at half the scale.
 
-**Minimum slab thickness 12 cm** – the automatic search of every slab starts at 12 cm, smaller values
-given in the input file are raised to 12 cm (with a message); the balconies are 12 cm at the free edge.
+**Slab thicknesses 12, 14, 16, 18 or 20 cm** – every slab (hall, meeting room, corridor, offices with
+slabs 10 and the lobby, stairs, canopy) takes the smallest of these values for which all its checks pass
+(the stairs start at 14 cm, the canopy is checked for bending and for l/d as a cantilever); a value given
+in the input file that is not one of them is rounded up (with a message); the balconies run from the
+thickness of the office slabs at the wall to 12 cm at the free edge.
 
 Limits of the template:
 * the hall must have 3 panels between A and C (true when 2·(b + c/2)/a is between 2
@@ -168,7 +179,7 @@ Limits of the template:
 
 * Geometry comes from the formwork plan (axes 1–7, 5', A–E): the number of one-way
   panels in the hall and in the meeting room is chosen so that l/l ≥ 2.
-* Slab thicknesses, the stair thickness, the depths of beams B5 / B21 / B15 (B15 not
+* Slab thicknesses (12/14/16/18/20 cm), the stair thickness, the depths of beams B5 / B21 / B15 (B15 not
   shallower than B5) and the footing height are **increased automatically** until all checks pass
   (bending, shear, deflection, punching). To fix a size yourself, set it in the
   JSON file (`hf_hall`, `B21_h`, `B15_h`, …; 0 = automatic).

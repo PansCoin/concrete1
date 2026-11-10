@@ -8,8 +8,8 @@ import numpy as np
 
 from .engine import S, N, P, sqrt, emin, emax, eabs, eatan, ecos, esin, fmt
 from .design import (NullNote, materials, bending, shear_no_links, shear_links, deflection_ld,
-                     flange_check, flange_shear, beam_bars, BAR_AREA)
-from .project import ceil_to
+                     flange_check, flange_shear, beam_bars, slab_bars, BAR_AREA)
+from .project import ceil_to, hf_values, HF_SET
 from .statics import ContinuousBeam
 
 
@@ -303,16 +303,25 @@ def beam_deflection(nt, mat, bw, h, beff, hf, d, As, Mqp, L, phi_cr=2.0):
 def section_VII(nt, P_, h_given=None):
     inp = P_.inp
     h = h_given or inp.BT_h
+    hfc = inp.hf_canopy
+    if not hfc:                         # canopy slab: 12, 14, 16, 18 or 20 cm (bending + l/d)
+        for hfc in hf_values():
+            _section_VII(NullNote(), P_, h, hfc)
+            if P_.res["VII"]["canopy"]["ok"]:
+                break
+        P_.log.append(f"h_f canopy slab {P_.G.no_stairs[0]}: {fmt(hfc)}")
+        if hfc > HF_SET[-1]:
+            P_.warn.append(f"canopy slab: h_f = {fmt(hfc)} cm - more than {fmt(HF_SET[-1])} cm is needed")
     for _ in range(8):
-        if _section_VII(NullNote(), P_, h):
+        if _section_VII(NullNote(), P_, h, hfc):
             break
         h += 5
     if h != inp.BT_h:
         P_.log.append(f"torsion beam: {fmt(inp.BT_b)}/{fmt(h)} cm")
-    return _section_VII(nt, P_, h)
+    return _section_VII(nt, P_, h, hfc)
 
 
-def _section_VII(nt, P_, hcm):
+def _section_VII(nt, P_, hcm, hf_c):
     G, inp, pl = P_.G, P_.inp, P_.plot
     s7 = G.no_stairs[0]
     nt.h1("VII. Design of reinforced concrete beam for torsion")
@@ -326,7 +335,7 @@ def _section_VII(nt, P_, hcm):
     t = S("t", 25, "cm")
     lb = nt.calc("l_eff", lcl + 2 * emin(h / 2, t / 2), "cm", "Effective span for bending")
     nt.p(f"Effective span for torsion: l_T = l_cl = {fmt(lcl.v)} cm")
-    hfc = S("h_f7", inp.hf_canopy / 100, "m")
+    hfc = S(f"h_f{s7}", hf_c / 100, "m")
     lc = nt.calc("l_c", S("1.25·d", 1.25 * inp.d / 100, "m") + S("b", bw.v / 200, "m"), "m",
                  "Length of the cantilever measured to the axis of the beam")
     nt.h2("2. Actions")
@@ -405,10 +414,30 @@ def _section_VII(nt, P_, hcm):
          f"side bars {max(2, math.ceil(side.v / BAR_AREA[12]))}Φ12 on each face.", bold=True)
     nt.h2(f"6. Canopy slab {s7} - top reinforcement at the root of the cantilever")
     Mc = nt.calc(f"M_Ed,{s7}", N(1.35) * Mcg + N(1.5) * Msk, "kNm/m", "Design moment at the root (per metre)")
-    hc = S("h", inp.hf_canopy * 10, "mm")
+    nt.p(f"Thickness of the canopy slab h_f = {fmt(hf_c)} cm (slab thicknesses 12, 14, 16, 18, 20 cm).")
+    hc = S("h", hf_c * 10, "mm")
     dc = nt.calc(f"d_{s7}", hc - S("c_nom", 25, "mm") - S("φ", 10, "mm") / 2, "mm")
-    rc = bending(nt, Mc, S("b", 1000, "mm"), dc, mat, "", kind="slab", h=hc, tag=str(s7))
-    P_.res["VII"] = dict(h=hcm, canopy=dict(design=rc, lc=lc.v, hf=inp.hf_canopy),
+    bc = S("b", 1000, "mm")
+    rc = bending(nt, Mc, bc, dc, mat, "", kind="slab", h=hc, tag=str(s7))
+    nt.p(f"Control of deflection of the canopy slab (cantilever, EC2 7.4.2): K = 0.4; snow ψ_2 = 0.",
+         italic=True)
+    ldc = (lc.v * 1000, dc, mat, 0.4, g7.v, sk.v, 1.35 * g7.v, 1.5 * sk.v)
+    if not deflection_ld(NullNote(), ldc[0], dc, rc["rho"], rc["rho_prov"], rc["As"], rc["As_prov"], mat,
+                         0.4, *ldc[4:], psi2=0.0):
+        # more top reinforcement lowers the steel stress (k_σ = 310/σ_s ≤ 1.5) - before a thicker slab
+        As_t = rc["As_prov"]
+        while As_t < 1.5 * rc["As"] + 1:
+            As_t *= 1.05
+            txt, Asp, phi, sp = slab_bars(As_t, hc.v)
+            if deflection_ld(NullNote(), ldc[0], dc, rc["rho"], Asp / (bc.v * dc.v), rc["As"], Asp, mat,
+                             0.4, *ldc[4:], psi2=0.0):
+                nt.p(f"With {rc['bars']} the l/d check is not satisfied - the top reinforcement is increased "
+                     f"to {txt} (A_s,prov = {fmt(Asp)} mm²/m), which lowers the steel stress σ_s:", italic=True)
+                rc = dict(rc, bars=txt, As_prov=Asp, phi=phi, s=sp, rho_prov=Asp / (bc.v * dc.v))
+                break
+    okc = deflection_ld(nt, ldc[0], dc, rc["rho"], rc["rho_prov"], rc["As"], rc["As_prov"], mat,
+                        0.4, *ldc[4:], psi2=0.0)
+    P_.res["VII"] = dict(h=hcm, canopy=dict(design=rc, lc=lc.v, hf=hf_c, ok=bool(rc["ok"] and okc)),
                          design=dict(bot=(phib, nbb), top=(phit, nbt), side=(12, nside), phi_w=phi_w, s=s,
                                      lcl=lcl.v),
                          summary=[("Torsion beam (axis E, 3-4)",
