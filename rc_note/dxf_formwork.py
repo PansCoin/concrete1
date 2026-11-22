@@ -1652,7 +1652,7 @@ def beam_grid(X, Y, hall_y, room_x, y_b17):
 
 def section_marks(doc, msp, X, Y, hf_by_slab, depths, n_half, hall_y=None, room_x=None, y_b17=None):
     """Slab thickness and beam depth of every beam section mark from the design:
-    depths = dict(hall=B5-B9, facade=B1/B10, B15=..., B21=...) [cm].
+    depths = dict(hall=B5-B9, facade=B1/B10, B15=..., B21=..., B12=...) [cm].
     Every mark is moved to the middle of its beam span (between two supports),
     one mark of a kind per span, the meeting room gets one on D and E in every
     panel. Returns dict(report, boxes): boxes = footprints of the marks."""
@@ -1697,6 +1697,8 @@ def section_marks(doc, msp, X, Y, hf_by_slab, depths, n_half, hall_y=None, room_
             return depths["B15"]
         if sec["ax"] == 1 and abs(sec["o"] - X["5"]) < 60 and Y["A"] < y < Y["B"] and depths.get("B21"):
             return depths["B21"]
+        if sec["ax"] == 0 and abs(sec["o"] - Y["B"]) < 70 and X["4"] < x < X["7"] and depths.get("B12"):
+            return depths["B12"]                                     # continuous beam B12 (axis B, 4-7)
         return None
 
     boxes = []

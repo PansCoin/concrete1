@@ -281,7 +281,8 @@ def slab_thickness(P):
         hf[G.no_corr] = res["I"]["hf"]
     if "IV" in res:
         h4 = res["IV"]["hf"]
-        hf.update({no: h4 for no in G.no_office + G.no_balcony + [G.no_10, G.no_lobby]})
+        hf.update({no: h4 for no in G.no_office + [G.no_10, G.no_lobby]})
+        hf.update({no: res["IV"].get("hb", h4) for no in G.no_balcony})
     if "V" in res:
         hf.update({no: res["V"]["h"] for no in G.no_stairs[1:]})
     if "VII" in res and "canopy" in res["VII"]:
@@ -750,7 +751,7 @@ class Builder:
     def balconies(self, R):
         lay, G, inp = self.lay, self.G, self.inp
         Y = lay.Y
-        hf = R["hf"]
+        hf = R.get("hb", R["hf"])                      # thickness of the balconies at the wall
         D = R["design"]
         rc = D["c"]
         pans = self.office_panels()

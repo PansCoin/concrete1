@@ -49,6 +49,35 @@ def auto_size(nt, fn, P, start, given=0, step=1, maxsteps=15, label="", values=N
     return v
 
 
+def size_IV(nt, P):
+    """Office slabs (section IV). Automatic: the smallest thickness for which the slabs and the
+    balconies (same thickness at the wall) pass. Thickness given in the input: the balconies get
+    their own root thickness (the smallest value >= the slabs for which the cantilever passes),
+    unless hf_balcony is given as well."""
+    from . import sec_slabs
+    inp = P.inp
+    if not inp.hf_office:
+        return auto_size(nt, sec_slabs.section_IV, P, HF_MIN, 0, label="h_f slab IV", values=hf_values())
+    hb = inp.hf_balcony
+    if not hb:
+        hb = inp.hf_office
+        for cand in hf_values(inp.hf_office):
+            try:
+                sec_slabs.section_IV(NullNote(), P, inp.hf_office, cand)
+                ok = P.res["IV"]["ok_balcony"]
+            except Exception:
+                ok = False
+            if ok:
+                hb = cand
+                break
+        if hb != inp.hf_office:
+            P.log.append(f"h_f balconies at the wall: {fmt(hb)}")
+            if hb > HF_SET[-1]:
+                P.warn.append(f"balconies: h_f = {fmt(hb)} cm at the wall - more than {fmt(HF_SET[-1])} cm is needed")
+    sec_slabs.section_IV(nt, P, inp.hf_office, hb)
+    return inp.hf_office
+
+
 def title_page(nt, P):
     inp, G = P.inp, P.G
     nt.p("")
@@ -104,7 +133,7 @@ def build(inp: Inputs, out_path: str, workdir=None, sections=None, verbose=True,
     from . import sec_slabs, sec_members, sec_frame
     P = ProjectRun(inp, workdir)
     P.drawings = None
-    for k in ("hf_corridor", "hf_hall", "hf_room", "hf_office", "hf_stair", "hf_canopy"):
+    for k in ("hf_corridor", "hf_hall", "hf_room", "hf_office", "hf_balcony", "hf_stair", "hf_canopy"):
         v = getattr(inp, k)
         if v:                                     # only 12, 14, 16, 18 or 20 cm
             h = hf_round(max(v, HF_MIN))
@@ -122,8 +151,7 @@ def build(inp: Inputs, out_path: str, workdir=None, sections=None, verbose=True,
                                   values=hf_values())),
         ("III", lambda: auto_size(nt, sec_slabs.section_III, P, HF_MIN, inp.hf_room, label="h_f slab III",
                                    values=hf_values())),
-        ("IV", lambda: auto_size(nt, sec_slabs.section_IV, P, HF_MIN, inp.hf_office, label="h_f slab IV",
-                                  values=hf_values())),
+        ("IV", lambda: size_IV(nt, P)),
         ("V", lambda: auto_size(nt, sec_members.section_V, P, 14.0, inp.hf_stair, label="h stair",
                                  values=hf_values(14.0))),
         ("VI", lambda: sec_members.section_VI(nt, P)),

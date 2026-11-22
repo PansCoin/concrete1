@@ -9,7 +9,7 @@ import numpy as np
 from .engine import S, N, P, sqrt, emin, emax, eabs, fmt
 from .design import (NullNote, materials, bending, shear_links, flange_check, beam_bars,
                      required_As, interaction_curve, column_bars, BAR_AREA)
-from .project import ceil_to, roof_actions
+from .project import ceil_to, roof_actions, b12_depth
 from .statics import ContinuousBeam, Frame2D
 from .sec_members import beam_eff_depth, beff_T
 
@@ -135,7 +135,7 @@ def section_IX(nt, P_):
     hf_off = P_.res.get("IV", {}).get("hf", 14)
     gk_corr = P_.res.get("I", {}).get("gk", 4.46)
     hf_corr = P_.res.get("I", {}).get("hf", 12)
-    h12 = inp.B12_h or 60
+    h12 = b12_depth(inp)
     nt.h2("1. Static scheme")
     bc, hc = inp.C10_b, inp.C10_h
     nt.p(f"Cross-section {fmt(bc)}/{fmt(hc)} cm. Storeys: first h_b = {fmt(inp.hb)} cm, then "

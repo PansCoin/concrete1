@@ -57,7 +57,8 @@ renumbering of the slabs and beams), the balconies get the depth d and the canop
 The beam section marks of the plan are redrawn from scratch, symmetric about the web: a hatched
 T (L for edge beams, stepped where the slabs on the two sides are at different levels) with the slab
 thickness of the slab field on each side and the beam depth h from the design (B5-B9, B15, B21,
-facade beams 60 cm); beams that are not designed keep the template depth rounded up to 5 cm, the
+B12 on axis B (`B12_h`, 60 cm by default - the same value as in the loads of column C10), facade beams
+60 cm); beams that are not designed keep the template depth rounded up to 5 cm, the
 same along one beam line. The dimensions h_f + web are on one side, h (or the other slab) on the
 other, at the same distance.
 
@@ -152,7 +153,11 @@ flight; the bars drawn separately at half the scale.
 slabs 10 and the lobby, stairs, canopy) takes the smallest of these values for which all its checks pass
 (the stairs start at 14 cm, the canopy is checked for bending and for l/d as a cantilever); a value given
 in the input file that is not one of them is rounded up (with a message); the balconies run from the
-thickness of the office slabs at the wall to 12 cm at the free edge.
+thickness of the office slabs at the wall to 12 cm at the free edge. When the office slabs are fixed in
+the input (`hf_office`), the balconies get their own thickness at the wall: the smallest of the values
+(not less than the slabs) for which the cantilever passes, or `hf_balcony` if given. Deflection of the
+office slabs: the simplified l/d check (EC2 7.4.2), first with more bottom reinforcement in the short
+span; if it is still not satisfied, the deflection of a 1 m strip is calculated (EC2 7.4.3, l/250).
 
 Limits of the template:
 * the hall must have 3 panels between A and C (true when 2·(b + c/2)/a is between 2
@@ -182,7 +187,7 @@ Limits of the template:
 * Slab thicknesses (12/14/16/18/20 cm), the stair thickness, the depths of beams B5 / B21 / B15 (B15 not
   shallower than B5) and the footing height are **increased automatically** until all checks pass
   (bending, shear, deflection, punching). To fix a size yourself, set it in the
-  JSON file (`hf_hall`, `B21_h`, `B15_h`, …; 0 = automatic).
+  JSON file (`hf_hall`, `hf_office`, `hf_balcony`, `B21_h`, `B15_h`, `B12_h`, …; 0 = automatic).
 * Codes: EN 1990, EN 1991-1-1, EN 1992-1-1 with the recommended values;
   C25/30, B500, γ_G = 1.35, γ_Q = 1.5.
 

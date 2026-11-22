@@ -245,7 +245,7 @@ def _section_VI(nt, P_, hcm):
     return r["ok"] and sh["ok"] and okf
 
 
-def beam_deflection(nt, mat, bw, h, beff, hf, d, As, Mqp, L, phi_cr=2.0):
+def beam_deflection(nt, mat, bw, h, beff, hf, d, As, Mqp, L, phi_cr=2.0, member="beam"):
     Ecm = mat["E_cm"]
     Ecm_ = nt.given("E_cm", Ecm, "GPa")
     Ece = nt.calc("E_c,eff", Ecm_ / (1 + S("φ(∞,t0)", phi_cr)), "GPa", "Effective modulus (creep)")
@@ -294,7 +294,7 @@ def beam_deflection(nt, mat, bw, h, beff, hf, d, As, Mqp, L, phi_cr=2.0):
     f = nt.calc("f", N(5 / 48, "5/48") * (r1 + rcs) * S("l_eff", L, "mm")**2, "mm", "Deflection (k = 5/48)")
     lim = nt.calc("f_lim", S("l_eff", L, "mm") / 250, "mm")
     return nt.compare(f, "≤", lim, ok_text="The deflection is acceptable",
-                      ng_text="The deflection is too large - increase the depth of the beam")
+                      ng_text=f"The deflection is too large - increase the depth of the {member}")
 
 
 # ============================================================================

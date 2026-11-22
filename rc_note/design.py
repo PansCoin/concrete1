@@ -247,7 +247,7 @@ def flange_shear(nt, dM, dx, d, hf, beff, bw, mat, compression=True):
 # Deflection - span/depth ratio (EC2 7.4.2)
 # ============================================================================
 def deflection_ld(nt, l_eff_mm, d, rho, rho_prov, As_req, As_prov, mat, K, gk, qk, gd, qd,
-                  psi2=0.3):
+                  psi2=0.3, ng_text="l/d too large - increase the depth"):
     fck = mat["fck"]
     rho0 = nt.calc("ρ_0", sqrt(mat["f_ck"]) * N(1e-3, "10⁻³"), "", digits=5)
     rho_s = S("ρ", max(rho, 1e-6), digits=5)
@@ -266,7 +266,7 @@ def deflection_ld(nt, l_eff_mm, d, rho, rho_prov, As_req, As_prov, mat, K, gk, q
     lim = nt.calc("(l/d)_lim", ld * k2, "")
     act = nt.calc("l/d", S("l_eff", l_eff_mm, "mm") / d, "")
     ok = nt.compare(act, "≤", lim, ok_text="Deflection need not be calculated (l/d check satisfied)",
-                    ng_text="l/d too large - increase the depth")
+                    ng_text=ng_text)
     return ok
 
 

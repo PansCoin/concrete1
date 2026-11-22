@@ -40,6 +40,7 @@ class Inputs:
     hf_hall: float = 0
     hf_room: float = 0
     hf_office: float = 0
+    hf_balcony: float = 0     # root of the balconies (0 = as the office slabs)
     hf_stair: float = 0
     hf_canopy: float = 0
     B5_b: float = 25; B5_h: float = 0
@@ -80,6 +81,12 @@ def hf_round(v):
         if h >= v - 1e-9:
             return h
     return v
+
+
+def b12_depth(inp):
+    """Depth of the continuous beam B12 (axis B, axes 4-7) [cm]: the loads of column C10 (IX) and the
+    formwork plan use the same value."""
+    return inp.B12_h or 60.0
 
 
 def ceil_to(v, step):

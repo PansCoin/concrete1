@@ -18,7 +18,7 @@ from __future__ import annotations
 import os
 
 from .engine import fmt
-from .project import HF_TIP
+from .project import HF_TIP, b12_depth
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE = os.path.join(os.path.dirname(HERE), "templates", "formwork_template.dxf")
@@ -38,7 +38,7 @@ def size_rows(P):
         o = G.no_office
         rows.append((f"Slabs {G.no_10}, {G.no_lobby}, {o[0]}-{o[-1]} (two-way)", f"h_f = {fmt(res['IV']['hf'])} cm"))
         rows.append((f"Balconies {G.no_balcony[0]}, {G.no_balcony[1]}",
-                     f"h_f = {fmt(res['IV']['hf'])} -> {fmt(HF_TIP)} cm, l = {fmt(inp.d)} cm"))
+                     f"h_f = {fmt(res['IV'].get('hb', res['IV']['hf']))} -> {fmt(HF_TIP)} cm, l = {fmt(inp.d)} cm"))
     if "VII" in res:
         hfc = res["VII"].get("canopy", {}).get("hf", inp.hf_canopy)
         rows.append((f"Canopy slab {G.no_stairs[0]}", f"h_f = {fmt(hfc)} cm, l = {fmt(1.25 * inp.d)} cm"))
@@ -50,6 +50,7 @@ def size_rows(P):
         rows.append(("Beams B5-B9 (hall)", f"{fmt(inp.B5_b)}/{fmt(res['VIII']['h'])} cm"))
     if "VI" in res:
         rows.append(("Beam B21", f"{fmt(inp.B21_b)}/{fmt(res['VI']['h'])} cm"))
+    rows.append(("Beam B12 (axis B, 4-7)", f"{fmt(inp.B12_b)}/{fmt(b12_depth(inp))} cm"))
     if "VII" in res and "h" in res["VII"]:
         rows.append(("Beam on axis E, 3-4 (torsion)", f"{fmt(inp.BT_b)}/{fmt(res['VII']['h'])} cm"))
     if "X" in res:
@@ -67,7 +68,7 @@ def beam_depths(P):
     """Depths of the designed beams for the section marks of the formwork plan [cm]."""
     res = P.res
     return dict(hall=res.get("VIII", {}).get("h"), facade=60.0, B15=res.get("X", {}).get("hB15"),
-                B21=res.get("VI", {}).get("h"))
+                B21=res.get("VI", {}).get("h"), B12=b12_depth(P.inp))
 
 
 def make(P, out_dir, name, png=False, template=TEMPLATE):

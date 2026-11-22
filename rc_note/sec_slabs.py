@@ -383,10 +383,13 @@ def _chi(lx, ly, kx, ky):
     return ky * ly**4 / (kx * lx**4 + ky * ly**4)
 
 
-def section_IV(nt, P_, hf):
+def section_IV(nt, P_, hf, hb=None):
+    """hf = thickness of the office slabs, hb = root thickness of the balconies
+    (default: input hf_balcony, else the thickness of the slabs)"""
     G, inp, pl = P_.G, P_.inp, P_.plot
     s1, s2, s3 = G.no_office
     b1, b2 = G.no_balcony
+    hb = hb or inp.hf_balcony or hf
     nt.h1("IV. Design of reinforced concrete slabs spanning in two directions")
     nt.p(f"Slabs {s1}, {s2}, {s3} - offices, axes 4-7 / A-B. In direction x (along axis A) the slabs are "
          f"continuous over the beams on axes 5 and 6; in direction y they are supported on the beams on "
@@ -405,6 +408,10 @@ def section_IV(nt, P_, hf):
     nt.compare(lam1, "≥", S("0.5", 0.5), ok_text="l_max/l_min ≤ 2 - slabs spanning in two directions")
     lcc = nt.given("l_c,cl", inp.d, "cm", "Clear length of the balconies (= d)")
     lc = nt.calc("l_c", lcc + t / 2, "cm", "Effective length of the cantilever")
+    hbS = S("h_f", hf, "cm")
+    if hb != hf:
+        hbS = nt.given("h_f,c", hb, "cm", f"Thickness of the balconies at the wall (root) - the slabs "
+                                          f"are {fmt(hf)} cm, the cantilevers need more")
     if not dry(nt):
         A, B = inp.a, inp.b
         rects = [(0, 0, A, B, f"Slab {s1}\ncase 2\n(S | C)", "#dfe9f5"),
@@ -420,8 +427,8 @@ def section_IV(nt, P_, hf):
     nt.h2("2. Actions")
     L = slab_actions(nt, hf, inp.q_office, "Imposed load - offices")
     nt.p("Balconies - characteristic permanent actions:", italic=True)
-    gb1 = nt.calc("g_k,c1", (hfS + S("h_tip", HF_TIP, "cm")) / N(200) * N(25), "kN/m²",
-                  f"Self-weight, variable thickness h_f → {fmt(HF_TIP)} cm (mean)")
+    gb1 = nt.calc("g_k,c1", (hbS + S("h_tip", HF_TIP, "cm")) / N(200) * N(25), "kN/m²",
+                  f"Self-weight, variable thickness {fmt(hb)} → {fmt(HF_TIP)} cm (mean)")
     gb2 = nt.calc("g_k,c2", N(0.10) * N(6) + N(0.04) * N(22) + N(0.02) * N(22) + N(0.02) * N(18), "kN/m²",
                   "Perlite concrete 10 cm, screed 4 cm, mosaic 2 cm, plaster 2 cm")
     gkc = nt.calc("Σg_k,c", gb1 + gb2, "kN/m²")
@@ -515,7 +522,12 @@ def section_IV(nt, P_, hf):
     R["y2"] = bending(nt, My2, b, d2, mat, f"Slab {s2} - direction y (bottom)", kind="slab", h=h, tag="y2")
     R["sup"] = bending(nt, Msf, b, d, mat, "Over the supports on axes 5 and 6 (top)", kind="slab", h=h, tag="56")
     nt.p("Balconies - top reinforcement at the root of the cantilever:", bold=True)
-    R["c"] = bending(nt, Mc, b, d, mat, "", kind="slab", h=h, tag="c")
+    if hb != hf:
+        dc = eff_depth(nt, hb, name="d_c")
+        hc = S("h_c", hb * 10, "mm")
+    else:
+        dc, hc = d, h
+    R["c"] = bending(nt, Mc, b, dc, mat, "", kind="slab", h=hc, tag="c")
     nt.h2("5. Design for shear")
     Vm = S("V_Ed,max", max(Vx.v, Vy.v, Vc.v), "kN/m")
     nt.p(f"V_Ed,max = max(V_Ed,x; V_Ed,y; V_Ed,c) = {fmt(Vm.v)} kN/m")
@@ -523,28 +535,55 @@ def section_IV(nt, P_, hf):
     nt.h2("6. Control of deflection (EC2 7.4.2)")
     nt.p("Two-way slab - the shorter span is checked; one edge continuous: K = 1.3")
     lshort = min(lxm, lym)
-    rr = R["y1"] if lym <= lxm else R["x1"]
+    rk = "y1" if lym <= lxm else "x1"
+    rr = R[rk]
     dd = d2 if lym <= lxm else d
-    okd = deflection_ld(nt, lshort * 1000, dd, rr["rho"], rr["rho_prov"], rr["As"], rr["As_prov"], mat, 1.3,
-                        L["gk"].v, L["qk"].v, L["gd"].v, L["qd"].v)
+    ld_slab = (mat, 1.3, L["gk"].v, L["qk"].v, L["gd"].v, L["qd"].v)
+    if not deflection_ld(NullNote(), lshort * 1000, dd, rr["rho"], rr["rho_prov"], rr["As"], rr["As_prov"],
+                         *ld_slab):
+        # more bottom reinforcement lowers the steel stress (k_σ = 310/σ_s ≤ 1.5)
+        As_t = rr["As_prov"]
+        while As_t < 1.5 * rr["As"] + 1:
+            As_t *= 1.05
+            txt, Asp, phi, sp_ = slab_bars(As_t, h.v)
+            if deflection_ld(NullNote(), lshort * 1000, dd, rr["rho"], Asp / (b.v * dd.v), rr["As"], Asp,
+                             *ld_slab):
+                nt.p(f"With {rr['bars']} the l/d check is not satisfied - the bottom reinforcement of slabs "
+                     f"{s1} and {s3} in direction {rk[0]} is increased to {txt} (A_s,prov = {fmt(Asp)} mm²/m), "
+                     "which lowers the steel stress σ_s:", italic=True)
+                R[rk] = rr = dict(rr, bars=txt, As_prov=Asp, phi=phi, s=sp_, rho_prov=Asp / (b.v * dd.v))
+                break
+    okd = deflection_ld(nt, lshort * 1000, dd, rr["rho"], rr["rho_prov"], rr["As"], rr["As_prov"], *ld_slab,
+                        ng_text="l/d > (l/d)_lim - the deflection is calculated (EC2 7.4.3)")
+    if not okd:
+        from .sec_members import beam_deflection
+        nt.p(f"The simplified check is not satisfied - the deflection is calculated (EC2 7.4.3) for a strip "
+             f"1 m wide in direction {rk[0]} of slabs {s1} and {s3} (simply supported in that direction):",
+             italic=True)
+        Ms = My1 if rk == "y1" else Mx1
+        Mqp = nt.calc("M_qp", Ms * (S("g_k", L["gk"].v) + N(0.3) * S("q_k", L["qk"].v)) /
+                      (S("g_d", L["gd"].v) + S("q_d", L["qd"].v)), "kNm/m",
+                      "Quasi-permanent span moment of the strip: M_Ed·(g_k + ψ₂·q_k)/(g_d + q_d)")
+        okd = beam_deflection(nt, mat, 1000.0, hf * 10.0, 1000.0, hf * 10.0, dd.v, rr["As_prov"], Mqp,
+                              lshort * 1000, member="slab")
     nt.p("Balcony (cantilever): K = 0.4", italic=True)
     rc = R["c"]
-    okc = deflection_ld(NullNote(), lc.v * 10, d, rc["rho"], rc["rho_prov"], rc["As"], rc["As_prov"], mat,
+    okc = deflection_ld(NullNote(), lc.v * 10, dc, rc["rho"], rc["rho_prov"], rc["As"], rc["As_prov"], mat,
                         0.4, gkc.v, qkc.v, gdc.v, qdc.v)
     if not okc:
         # more top reinforcement lowers the steel stress (k_σ = 310/σ_s ≤ 1.5) - try before a thicker slab
         As_t = rc["As_prov"]
         while As_t < 1.5 * rc["As"] + 1:
             As_t *= 1.05
-            txt, Asp, phi, sp = slab_bars(As_t, h.v)
-            if deflection_ld(NullNote(), lc.v * 10, d, rc["rho"], Asp / (b.v * d.v), rc["As"], Asp, mat,
+            txt, Asp, phi, sp = slab_bars(As_t, hc.v)
+            if deflection_ld(NullNote(), lc.v * 10, dc, rc["rho"], Asp / (b.v * dc.v), rc["As"], Asp, mat,
                              0.4, gkc.v, qkc.v, gdc.v, qdc.v):
                 nt.p(f"With {rc['bars']} the simplified l/d check of the cantilever is not satisfied - the top "
                      f"reinforcement of the balconies is increased to {txt} (A_s,prov = {fmt(Asp)} mm²/m), which "
                      "lowers the steel stress σ_s:", italic=True)
-                R["c"] = rc = dict(rc, bars=txt, As_prov=Asp, phi=phi, s=sp, rho_prov=Asp / (b.v * d.v))
+                R["c"] = rc = dict(rc, bars=txt, As_prov=Asp, phi=phi, s=sp, rho_prov=Asp / (b.v * dc.v))
                 break
-    okc = deflection_ld(nt, lc.v * 10, d, rc["rho"], rc["rho_prov"], rc["As"], rc["As_prov"], mat,
+    okc = deflection_ld(nt, lc.v * 10, dc, rc["rho"], rc["rho_prov"], rc["As"], rc["As_prov"], mat,
                         0.4, gkc.v, qkc.v, gdc.v, qdc.v)
     nt.h2("7. Reinforcement summary")
     nt.table(["Location", "M_Ed [kNm/m]", "A_s,req [mm²/m]", "Adopted", "A_s,prov [mm²/m]"],
@@ -552,14 +591,15 @@ def section_IV(nt, P_, hf):
               ((f"{s1}/{s3} x", Mx1, "x1"), (f"{s1}/{s3} y", My1, "y1"), (f"{s2} x", Mx2, "x2"),
                (f"{s2} y", My2, "y2"), ("supports 5, 6", Msf, "sup"), ("balcony root", Mc, "c"))],
              caption="Reinforcement of the slabs in two directions")
-    P_.res["IV"] = dict(hf=hf, gk=L["gk"].v, qk=L["qk"].v, gkc=gkc.v, design=R,
+    P_.res["IV"] = dict(hf=hf, hb=hb, ok_balcony=bool(R["c"]["ok"] and okc), gk=L["gk"].v, qk=L["qk"].v,
+                        gkc=gkc.v, design=R,
                         summary=[(f"Slabs {s1}, {s2}, {s3} (offices, two-way)",
                                   f"h_f = {fmt(hf)} cm, x: {R['x1']['bars']}, y: {R['y1']['bars']}, "
                                   f"supports: {R['sup']['bars']}"),
                                  (f"Balconies {b1}, {b2}", f"top {R['c']['bars']}")])
     if not okc:
         nt.p("Note: the simplified l/d check of the cantilever is not satisfied. The balconies are made "
-             f"with a root thickness h_f and a tip thickness of {fmt(HF_TIP)} cm; increase the root thickness or "
+             f"with a root thickness of {fmt(hb)} cm and a tip thickness of {fmt(HF_TIP)} cm; increase the root thickness or "
              "verify the deflection by calculation (EC2 7.4.3).", italic=True)
     ok = all(r["ok"] for r in R.values()) and sh["ok"] and okd and okc
     return ok
