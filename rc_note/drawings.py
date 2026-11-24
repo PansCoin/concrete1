@@ -36,7 +36,8 @@ def size_rows(P):
         rows.append((f"Slab {G.no_corr} (corridor)", f"h_f = {fmt(res['I']['hf'])} cm"))
     if "IV" in res:
         o = G.no_office
-        rows.append((f"Slabs {G.no_10}, {G.no_lobby}, {o[0]}-{o[-1]} (two-way)", f"h_f = {fmt(res['IV']['hf'])} cm"))
+        rows.append((f"Slabs {o[0]}-{o[-1]} (offices, two-way)", f"h_f = {fmt(res['IV']['hf'])} cm"))
+        rows.append((f"Slabs {G.no_10}, {G.no_lobby} (not designed)", f"h_f = {fmt(res['IV']['hf'])} cm"))
         rows.append((f"Balconies {G.no_balcony[0]}, {G.no_balcony[1]}",
                      f"h_f = {fmt(res['IV'].get('hb', res['IV']['hf']))} -> {fmt(HF_TIP)} cm, l = {fmt(inp.d)} cm"))
     if "VII" in res:

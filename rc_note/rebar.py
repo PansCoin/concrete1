@@ -110,6 +110,8 @@ class Rep:
     ar: tuple = None             # (BarType, n) assembly bars shown as dots
     lab_t: float = 0.5           # position of the label along the bar (0..1)
     slab: str = ""
+    parts: tuple = ()            # ((d0, d1), ...) parts of the bar inside the slabs, as distances
+                                 # from p0 along the bar - dimensioned on the plan
 
 
 @dataclass
@@ -357,21 +359,25 @@ class Builder:
                  lab_t=0.5, rside=1, mult=1, n_override=None):
         """Support line at coordinate c (x for direction 'x' bars, y for 'y'),
         width t; span = (a0, a1) clear extent along the support; ext =
-        extension beyond each face."""
+        extension beyond each face (or (below, above) for two different slabs);
+        h_cm = slab thickness (or (below, above))."""
         a0, a1 = span
-        leg = max(h_cm - 2 * COVER, 5.0)
-        straight = t + 2 * ext
+        e0, e1 = ext if isinstance(ext, (tuple, list)) else (ext, ext)
+        h0, h1 = h_cm if isinstance(h_cm, (tuple, list)) else (h_cm, h_cm)
+        leg0, leg1 = max(h0 - 2 * COVER, 5.0), max(h1 - 2 * COVER, 5.0)
+        straight = t + e0 + e1
         n = n_override or count(a1 - a0, s)
         q = a0 + frac * (a1 - a0)
-        rpos = c + rside * (t / 2 + 0.55 * ext)
+        rpos = c + rside * (t / 2 + 0.25 * (e1 if rside > 0 else e0))
         if direction == "x":
-            p0, p1 = (c - t / 2 - ext, q), (c + t / 2 + ext, q)
+            p0, p1 = (c - t / 2 - e0, q), (c + t / 2 + e1, q)
             rng = ((rpos, a0), (rpos, a1))
         else:
-            p0, p1 = (q, c - t / 2 - ext), (q, c + t / 2 + ext)
+            p0, p1 = (q, c - t / 2 - e0), (q, c + t / 2 + e1)
             rng = ((a0, rpos), (a1, rpos))
-        b = self.bar("TR", phi, [leg, straight, leg], s, "top", where)
-        return b, Rep(b, n, p0, p1, legs=(leg, leg), side=side, rng=rng, lab_t=lab_t, slab=slab)
+        b = self.bar("TR", phi, [leg0, straight, leg1], s, "top", where)
+        return b, Rep(b, n, p0, p1, legs=(leg0, leg1), side=side, rng=rng, lab_t=lab_t, slab=slab,
+                      parts=((0.0, e0), (e0 + t, e0 + t + e1)))
 
     # top bars at an edge support -----------------------------------------
     def top_edge(self, face, t, inward, direction, span, phi, s, ext, h_cm, frac, where, slab,
@@ -385,7 +391,7 @@ class Builder:
         q = a0 + frac * (a1 - a0)
         outer = face - inward * (t - COVER)
         inner = face + inward * ext
-        rpos = face + inward * 0.55 * ext
+        rpos = face + inward * 0.25 * ext
         if direction == "x":
             p0, p1 = (outer, q), (inner, q)
             rng = ((rpos, a0), (rpos, a1))
@@ -393,7 +399,8 @@ class Builder:
             p0, p1 = (q, outer), (q, inner)
             rng = ((a0, rpos), (a1, rpos))
         b = self.bar("TR", phi, [hook, straight, leg], s, "top", where)
-        return b, Rep(b, n, p0, p1, legs=(hook, leg), side=side, rng=rng, lab_t=lab_t, slab=slab)
+        return b, Rep(b, n, p0, p1, legs=(hook, leg), side=side, rng=rng, lab_t=lab_t, slab=slab,
+                      parts=((t - COVER, t - COVER + ext),))
 
     def with_ar(self, rep, run_len, h_cm, where, runs=1):
         """Assembly bars under the top bars, drawn as dots on the representative
@@ -418,8 +425,13 @@ class Builder:
             self.corridor(res["I"])
         if "IV" in res:
             self.offices(res["IV"])
-            self.two_way_extra(res["IV"])
             self.balconies(res["IV"])
+        if "I" in res:
+            self.supports_B_D()
+        self.notes.append(f"Slabs {self.G.no_10} and {self.G.no_lobby} are not designed in this project "
+                          "(no calculation) - no reinforcement is shown in them.")
+        self.notes.append("Top bars: the dimension beside a top bar is its length inside the slab, from the "
+                          "face of the support: 0.3 x the clear span of that slab.")
         if "VII" in res and "canopy" in res["VII"]:
             self.canopy(res["VII"])
         self.stairs(res.get("V"))
@@ -493,7 +505,8 @@ class Builder:
             for j in range(1, n):                       # bottom meshes of two panels overlap in the beam
                 self.laps["bottom"].append(((xl, panels[j][0] - (tb - COVER)),
                                             (xl, panels[j - 1][1] + (tb - COVER))))
-            # strips over the secondary beams
+            # strips over the secondary beams: 0.3 x the clear span into each panel
+            xd = x0 + (0.10 if k == 0 else 0.90) * (x1 - x0)          # dimensions of the lengths in the panels
             for j in range(1, n):
                 sym = min(j, n - j)
                 lcl = max(panels[j - 1][1] - panels[j - 1][0], panels[j][1] - panels[j][0])
@@ -501,16 +514,19 @@ class Builder:
                 yr = yb[j] + tb / 2 + 0.5 * ext
                 self.mesh_zone(Mh[("sup", names[sym])], (x0, yb[j] - tb / 2 - ext, x1, yb[j] + tb / 2 + ext),
                                "y", "top", f"{wh}, over support {names[sym]}", rng=((x0, yr), (x1, yr)))
+                self.dims["top"] += [((xd, yb[j] - tb / 2 - ext), (xd, yb[j] - tb / 2)),
+                                     ((xd, yb[j] + tb / 2), (xd, yb[j] + tb / 2 + ext))]
             # end supports on axes A and E
             for j, face, inward in ((0, panels[0][0], 1), (n - 1, panels[-1][1], -1)):
-                ext = ceil5(0.2 * (panels[j][1] - panels[j][0]))
+                ext = ceil5(0.3 * (panels[j][1] - panels[j][0]))
                 a, b = face - inward * (WALL - COVER), face + inward * ext
                 yr = face + inward * 0.5 * ext
                 self.mesh_zone(Mh["edge"], (x0, min(a, b), x1, max(a, b)), "y", "top",
                                f"{wh}, edges A / E", rng=((x0, yr), (x1, yr)))
+                self.dims["top"].append(((xd, min(face, b)), (xd, max(face, b))))
         # constructive strips along axes 1, 2, 3 (main bars across the axis)
         lsh = panels[1][1] - panels[1][0]
-        extc = ceil5(max(0.2 * lsh, 40.0))
+        extc = ceil5(max(0.3 * lsh, 40.0))
         strips = [(X["1"] + WALL / 2 - (WALL - COVER), X["1"] + WALL / 2 + extc),
                   (X["2"] - t2 / 2 - extc, X["2"] + t2 / 2 + extc),
                   (X["3"] - WALL / 2 - extc, X["3"] - WALL / 2 + (WALL - COVER))]
@@ -562,20 +578,31 @@ class Builder:
             self.with_ar(rep, H + 2 * e, hf, f"{rng_txt}, under TR")
         phe, se = edge_top_bars(D["r1"], hf)
         for j, face, inward in ((0, panels[0][0], 1), (n - 1, panels[-1][1], -1)):
-            ext = ceil5(0.2 * (panels[j][1] - panels[j][0]))
+            ext = ceil5(0.3 * (panels[j][1] - panels[j][0]))
             b, rep = self.top_edge(face, WALL, inward, "x", (y0, y1), phe, se, ext, hf, 0.78,
                                    f"{rng_txt}, edges 5' / 7", "", side=1)
             self.with_ar(rep, H + 2 * e, hf, f"{rng_txt}, under TR")
-        # constructive top bars along axes D and E
+        # constructive top bars along axes D and E (over D: bars across the beam into the corridor,
+        # drawn with the corridor)
         phc, sc = constructive_top(hf)
         lsh = panels[1][1] - panels[1][0]
-        extc = ceil5(max(0.2 * lsh, 40.0))
+        extc = ceil5(max(0.3 * lsh, 40.0))
         xcl = (panels[0][0], panels[-1][1])
         ntot = sum(count(x1 - x0, sc) for x0, x1 in panels)
-        jr = n // 2
-        fr = (panels[jr][0] + 0.5 * lsh - xcl[0]) / (xcl[1] - xcl[0])
+        X = lay.X
+        mid = (xcl[0] + xcl[1]) / 2
+        cols = [X["5"], X["6"]]
+        jr = min(range(n), key=lambda j: (min(abs(panels[j][0] + 0.5 * lsh - c) for c in cols) < 60.0,
+                                          abs(panels[j][0] + 0.5 * lsh - mid)))
+        # the bars along E at 0.70 and over D at 0.30 of that panel: their labels stay clear of the
+        # dimension of the panel (written in its middle)
+        fr = (panels[jr][0] + 0.70 * lsh - xcl[0]) / (xcl[1] - xcl[0])
+        fr_d = (panels[jr][0] + 0.30 * lsh - xcl[0]) / (xcl[1] - xcl[0])
+        self._room = dict(panels=panels, hf=hf, lsh=lsh, ext=extc, phc=phc, sc=sc, xcl=xcl, ntot=ntot, fr=fr_d,
+                          n=n, e=e, txt=rng_txt)
         where = f"{rng_txt}, edges on axes D, E"
-        for face, inward in ((y0, 1), (y1, -1)):
+        faces = ((y1, -1),) if "I" in self.P.res else ((y0, 1), (y1, -1))
+        for face, inward in faces:
             b, rep = self.top_edge(face, WALL, inward, "y", xcl, phc, sc, extc, hf, fr, where, "",
                                    side=-1, n_override=ntot)
             yr = rep.rng[0][1]
@@ -600,7 +627,7 @@ class Builder:
         bx = [x0, X["5"], X["6"], x1]
         pieces = split_run(x0, x1, phid, (e, e), joints=[X["5"], X["6"]])
         phe, se = edge_top_bars(r, hf)
-        ext = ceil5(0.2 * H)
+        ext = ceil5(0.3 * H)
         tops = []
         for k in range(3):
             xa, xb = bx[k], bx[k + 1]
@@ -615,15 +642,11 @@ class Builder:
         for k in range(2):                              # laps of the distribution bars
             yk = y0 + (0.30 + 0.06 * (k % 2)) * H
             self.laps["bottom"].append(((pieces[k + 1][0], yk), (pieces[k][1], yk)))
-        # top bars at the edge supports B and D
-        for face, inward in ((y0, 1), (y1, -1)):
-            for k, (xa, xb, Lr) in enumerate(tops):
-                b, rep = self.top_edge(face, WALL, inward, "y", (xa, xb), phe, se, ext, hf, 0.30,
-                                       f"slab {no}, edges B / D", "", side=-1)
-                self.with_ar(rep, Lr, hf, f"slab {no}, under TR")
+        # top bars over the beams on axes B and D: drawn in supports_B_D (across the beams)
+        self._corr = dict(x0=x0, x1=x1, y0=y0, y1=y1, H=H, hf=hf, ext=ext, phe=phe, se=se, tops=tops, no=no)
         # constructive top bars at the walls on axes 4 and 7
         phc, sc = constructive_top(hf)
-        extc = ceil5(max(0.2 * H, 40.0))
+        extc = ceil5(max(0.3 * H, 40.0))
         for face, inward in ((x0, 1), (x1, -1)):
             b, rep = self.top_edge(face, WALL, inward, "x", (y0, y1), phc, sc, extc, hf, 0.5,
                                    f"slab {no}, edges 4 / 7", "", side=1)
@@ -684,68 +707,83 @@ class Builder:
         H = y1 - y0
         for k, ax in ((0, "5"), (1, "6")):
             lcl = max(pans[k][2] - pans[k][0], pans[k + 1][2] - pans[k + 1][0])
-            ext = ceil5(0.25 * lcl)
+            ext = ceil5(0.3 * lcl)
             b, rep = self.top_over(X[ax], t56, "x", (y0, y1), rs["phi"], sp(rs["s"]), ext, hf, 0.56,
                                    f"slabs {nos[0]}-{nos[-1]}, over axes 5, 6", "", side=1,
                                    rside=1 if k == 0 else -1)
             self.with_ar(rep, H + 2 * e, hf, f"slabs {nos[0]}-{nos[-1]}, under TR")
-        # edge supports: walls on axes 4 / 7 (x), beam on axis B (y), axis A of the middle slab
+        # edge supports: walls on axes 4 / 7 (x), beam on axis A (y) - over the beam on axis B the bars
+        # run across the beam into the corridor (supports_B_D)
         phx, sx = edge_top_bars(D["x1"], hf)
         phy, sy = edge_top_bars(D["y1"], hf)
         for k, face, inward in ((0, pans[0][0], 1), (2, pans[2][2], -1)):
-            ext = ceil5(0.2 * (pans[k][2] - pans[k][0]))
+            ext = ceil5(0.3 * (pans[k][2] - pans[k][0]))
             b, rep = self.top_edge(face, WALL, inward, "x", (y0, y1), phx, sx, ext, hf, 0.56,
                                    f"slabs {nos[0]}, {nos[2]}, edges 4 / 7", "", side=1)
             self.with_ar(rep, H + 2 * e, hf, f"slabs {nos[0]}-{nos[-1]}, under TR")
-        ext = ceil5(0.2 * H)
+        ext = ceil5(0.3 * H)
+        self._off = dict(pans=pans, hf=hf, phy=phy, sy=sy, H=H, ext=ext)
         for k, (x0, _, x1, _, tl, tr) in enumerate(pans):
             run = (x1 - x0) + (tl - COVER) + (tr - COVER)
-            b, rep = self.top_edge(y1, WALL, -1, "y", (x0, x1), phy, sy, ext, hf, 0.12,
-                                   f"slabs {nos[0]}-{nos[-1]}, edge B", "", side=-1)
-            self.with_ar(rep, run, hf, f"slabs {nos[0]}-{nos[-1]}, under TR")
-            if k == 1:                                   # no balcony in front of the middle slab
-                b, rep = self.top_edge(y0, WALL, 1, "y", (x0, x1), phy, sy, ext, hf, 0.40,
-                                       f"slab {nos[1]}, edge A", "", side=-1)
+            if "I" not in self.P.res:                  # no corridor designed: edge bars on axis B
+                b, rep = self.top_edge(y1, WALL, -1, "y", (x0, x1), phy, sy, ext, hf, 0.12,
+                                       f"slabs {nos[0]}-{nos[-1]}, edge B", "", side=-1)
                 self.with_ar(rep, run, hf, f"slabs {nos[0]}-{nos[-1]}, under TR")
+            # axis A: every slab (in front of slabs 19 and 21 the balcony bars run into the slab as well)
+            b, rep = self.top_edge(y0, WALL, 1, "y", (x0, x1), phy, sy, ext, hf, 0.40 if k == 1 else 0.28,
+                                   f"slabs {nos[0]}-{nos[-1]}, edge A", "", side=-1)
+            self.with_ar(rep, run, hf, f"slabs {nos[0]}-{nos[-1]}, under TR")
 
-    # ------------------------------------------------------------- slabs 10 and 18
-    def two_way_extra(self, R):
-        """Slab 10 (axes 4-5' / D-E) and the lobby slab 18 (axes 3-4, B17-D)
-        are not designed separately: they are reinforced like the office
-        slabs (two-way, smaller spans, same thickness)."""
-        lay, G = self.lay, self.G
-        X, Y = lay.X, lay.Y
-        hf = R["hf"]
-        D = R["design"]
-        from .dxf_formwork import T_B17_Y
+    # ------------------------------------------------------------- beams on axes B and D
+    def supports_B_D(self):
+        """Top bars over the beams on axes B and D: one bar across the beam, 0.3 x the clear span
+        of each slab into the corridor and into the slab on the other side (offices at B, meeting
+        room at D). Next to slab 10 (not designed) the corridor bars are hooked into beam D."""
+        C = self._corr
+        inp, G = self.inp, self.G
+        X, Y = self.lay.X, self.lay.Y
+        no, hfc = C["no"], C["hf"]
         e = WALL - COVER
-        slabs = [(G.no_10, (X["4"] + WALL / 2, Y["D"] + WALL / 2, X["5'"] - WALL / 2, Y["E"] - WALL / 2)),
-                 (G.no_lobby, (X["3"] + WALL / 2, lay.fy(T_B17_Y) + WALL / 2,
-                               X["4"] - WALL / 2, Y["D"] - WALL / 2))]
-        phx, sx = edge_top_bars(D["x1"], hf)
-        phy, sy = edge_top_bars(D["y1"], hf)
-        for no, (x0, y0, x1, y1) in slabs:
-            where = f"slab {no}"
-            # the drawn bars keep clear of the slab number of the plan (and of the range lines
-            # of the other direction at 0.16 / 0.86)
-            fx, fy = 0.22, 0.78
-            c = self.label_at(no)
-            if c is not None:
-                fx = next((f for f in (0.22, 0.30, 0.38, 0.46) if abs(y0 + f * (y1 - y0) - c.y) >= 40), fx)
-                fy = next((f for f in (0.78, 0.70, 0.62, 0.54) if abs(x0 + f * (x1 - x0) - c.x) >= 40), fy)
-            self.two_way_bottom((x0, y0, x1, y1), WALL, WALL, D["x1"], D["y1"], where, str(no),
-                                fx=fx, fy=fy)
-            W, H = x1 - x0, y1 - y0
-            for face, inward in ((x0, 1), (x1, -1)):
-                b, rep = self.top_edge(face, WALL, inward, "x", (y0, y1), phx, sx, ceil5(0.2 * W), hf,
-                                       0.30, where + ", edges", "", side=1)
-                self.with_ar(rep, H + 2 * e, hf, where + ", under TR")
-            for face, inward in ((y0, 1), (y1, -1)):
-                b, rep = self.top_edge(face, WALL, inward, "y", (x0, x1), phy, sy, ceil5(0.2 * H), hf,
-                                       0.78, where + ", edges", "", side=-1)
-                self.with_ar(rep, W + 2 * e, hf, where + ", under TR")
-        self.notes.append(f"Slabs {G.no_10} and {G.no_lobby} are reinforced like slabs "
-                          f"{G.no_office[0]}-{G.no_office[-1]} (two-way slabs, smaller spans).")
+
+        def stronger(a, b):
+            return a if BAR_AREA[a[0]] / a[1] >= BAR_AREA[b[0]] / b[1] else b
+        # axis B: offices below, corridor above
+        O = getattr(self, "_off", None)
+        for k, (xa, xb, Lr) in enumerate(C["tops"]):
+            if O is None:
+                b, rep = self.top_edge(C["y0"], WALL, 1, "y", (xa, xb), C["phe"], C["se"], C["ext"], hfc, 0.30,
+                                       f"slab {no}, edge B", "", side=-1)
+                self.with_ar(rep, Lr, hfc, f"slab {no}, under TR")
+                continue
+            phi, s = stronger((C["phe"], C["se"]), (O["phy"], O["sy"]))
+            where = f"slabs {G.no_office[0]}-{G.no_office[-1]} / {no}, over beam B"
+            b, rep = self.top_over(Y["B"], inp.B12_b, "y", (xa, xb), phi, s, (O["ext"], C["ext"]),
+                                   (O["hf"], hfc), 0.45, where, "", side=-1, rside=1)
+            self.with_ar(rep, Lr, min(O["hf"], hfc), f"slabs {G.no_office[0]}-{G.no_office[-1]} / {no}, under TR")
+        # axis D: corridor below, meeting room above (axes 5'-7), slab 10 (axes 4-5', not designed)
+        R = getattr(self, "_room", None)
+        if R is None:
+            for k, (xa, xb, Lr) in enumerate(C["tops"]):
+                b, rep = self.top_edge(C["y1"], WALL, -1, "y", (xa, xb), C["phe"], C["se"], C["ext"], hfc, 0.30,
+                                       f"slab {no}, edge D", "", side=-1)
+                self.with_ar(rep, Lr, hfc, f"slab {no}, under TR")
+            return
+        xs = X["5'"] - WALL / 2                               # face of the beam on axis 5'
+        if xs > C["x0"] + 20:
+            b, rep = self.top_edge(C["y1"], WALL, -1, "y", (C["x0"], xs), C["phe"], C["se"], C["ext"], hfc, 0.50,
+                                   f"slab {no}, edge D (slab {G.no_10})", "", side=-1)
+            self.with_ar(rep, (xs - C["x0"]) + e, hfc, f"slab {no}, under TR")
+        phi, s = stronger((C["phe"], C["se"]), (R["phc"], R["sc"]))
+        nos = G.no_room
+        where = f"slabs {nos[0]}-{nos[-1]} / {no}, over beam D"
+        ntot = sum(count(x1 - x0, s) for x0, x1 in R["panels"])
+        b, rep = self.top_over(Y["D"], WALL, "y", R["xcl"], phi, s, (C["ext"], R["ext"]), (hfc, R["hf"]),
+                               R["fr"], where, "", side=-1, rside=1, n_override=ntot)
+        yr = rep.rng[0][1]
+        rep.rng = None                       # the bars stop at the beams of the room: one dimension per panel
+        self.dims["top"] += [((x0, yr), (x1, yr)) for x0, x1 in R["panels"]]
+        self.with_ar(rep, R["lsh"] + 2 * e, min(hfc, R["hf"]), f"slabs {nos[0]}-{nos[-1]} / {no}, under TR",
+                     runs=R["n"])
 
     # ------------------------------------------------------------- balconies
     def balconies(self, R):
@@ -758,7 +796,7 @@ class Builder:
         y_root = Y["A"] - WALL / 2                     # outer face of the wall on axis A
         y_tip = y_root - inp.d
         H_off = pans[0][3] - pans[0][1]
-        ext_in = max(ceil5(inp.d), ceil5(0.25 * H_off))
+        ext_in = max(ceil5(inp.d), ceil5(0.3 * H_off))
         tip_leg = HF_TIP - 2 * COVER                  # thickness at the free edge
         leg = max(hf - 2 * COVER, 5.0)
         phd, sd = dist_bars(rc["As_prov"], hf)
@@ -772,7 +810,8 @@ class Builder:
             rep = Rep(b, count(W, sp(rc["s"])), (xq, y_tip + COVER), (xq, y_root + WALL + ext_in),
                       legs=(tip_leg, leg), side=-1,
                       rng=((x0, y_root - 0.62 * inp.d), (x1, y_root - 0.62 * inp.d)),
-                      lab_t=0.30, slab=str(no))
+                      lab_t=0.30, slab=str(no),
+                      parts=((0.0, inp.d - COVER), (inp.d - COVER + WALL, inp.d - COVER + WALL + ext_in)))
             self.add(rep)
             # distribution bars in the cantilever (top, under the main bars)
             Ld = W - 2 * COVER

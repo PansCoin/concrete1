@@ -39,7 +39,7 @@ class Inputs:
     hf_corridor: float = 0    # cm
     hf_hall: float = 0
     hf_room: float = 0
-    hf_office: float = 0
+    hf_office: float = 14     # office slabs 19-21: 14 cm (course value; 0 = automatic)
     hf_balcony: float = 0     # root of the balconies (0 = as the office slabs)
     hf_stair: float = 0
     hf_canopy: float = 0

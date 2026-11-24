@@ -337,7 +337,22 @@ def draw_rep(msp, rep, dx=0.0):
     segs = b.segs
     main = segs[len(segs) // 2]
     off = sd * (H_LEN * 0.9)
-    text(msp, fmt(main), (p0[0] + ux * L / 2 + nx * off, p0[1] + uy * L / 2 + ny * off), H_LEN, ang)
+    if rep.parts:
+        # top bars: the length inside each slab (from the face of the support), dimensioned beside
+        # the bar beyond its folded legs
+        lmax = max(leg0, leg1, 0.0)
+        o = sd * (lmax + 9.0)
+        for d0, d1 in rep.parts:
+            if d1 - d0 < 1.0:
+                continue
+            a = (p0[0] + ux * d0, p0[1] + uy * d0)
+            c_ = (p0[0] + ux * d1, p0[1] + uy * d1)
+            d = msp.add_linear_dim(base=(a[0] + nx * o, a[1] + ny * o), p1=a, p2=c_,
+                                   angle=0 if abs(uy) < 1e-6 else 90, dimstyle=DIMSTYLE,
+                                   override={"dimexo": lmax + 2.0}, dxfattribs={"layer": "R-DIM"})
+            d.render()
+    else:
+        text(msp, fmt(main), (p0[0] + ux * L / 2 + nx * off, p0[1] + uy * L / 2 + ny * off), H_LEN, ang)
     if leg0 > 0:
         q = (p0[0] + sd * nx * leg0 / 2 - ux * H_LEN * 0.9, p0[1] + sd * ny * leg0 / 2 - uy * H_LEN * 0.9)
         text(msp, fmt(segs[0]), q, H_LEN, ang + 90)

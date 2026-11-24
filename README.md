@@ -104,16 +104,18 @@ no bar, mesh, label, dimension or line of the background crosses the circle.
 
 | Slab | Bottom | Top |
 |---|---|---|
-| meeting room (III) | BR end / interior spans, DR | TR over the beams (support B / interior), TR at 5' and 7, constructive at D/E |
-| corridor (I) | BR, DR in 3 pieces with laps (> 12 m) | TR at B/D, constructive at 4/7 |
-| offices 19–21 (IV) | BR x and y | TR over axes 5, 6, TR at the edges |
+| meeting room (III) | BR end / interior spans, DR | TR over the beams (support B / interior), TR at 5' and 7, constructive at E |
+| corridor (I) | BR, DR in 3 pieces with laps (> 12 m) | TR across the beams on B (into the offices) and D (into the meeting room), at D next to slab 10 hooked into the beam; constructive at 4/7 |
+| offices 19–21 (IV) | BR x and y | TR over axes 5, 6, TR at the walls 4/7 and on axis A (all three slabs) |
 | balconies (IV), canopy 7 (VII) | – | TR cantilever bars + DR |
-| slabs 10, 18 | as the offices | TR at the edges |
+| slabs 10, 18 | – | – (not designed: no calculation, no reinforcement) |
 
 AR = assembly bars under the top bars (dots on the TR bars). Detailing rules (EC2 9.3):
-bottom bars into the supports up to the far face minus the cover, top bars over supports
-0.3·l (two-way 0.25·l) beyond the face, end supports A_s3 ≥ max(0.25·A_s; A_s,min; 5Φ8/m)
-over 0.2·l, distribution ≥ 0.2·A_s and 3Φ8/m.
+bottom bars into the supports up to the far face minus the cover; **top bars 0.3 × the clear span
+of the slab beyond the face of every support** (over a beam between two slabs one bar across the
+beam, 0.3 × the span of each slab into it; the top meshes of the hall the same), and the drawing
+dimensions that length inside each slab beside the bar; end supports A_s3 ≥ max(0.25·A_s;
+A_s,min; 5Φ8/m); distribution ≥ 0.2·A_s and 3Φ8/m.
 
 The width over which each group of bars or zone of meshes is placed is given with real
 **dimension lines** (DIMENSION entities, style `RC_DIM`). Collinear dimensions are chained, so
@@ -149,8 +151,9 @@ crossing; top bars Φ8/20 at both supports over 0.2·l; distribution bars Φ8/20
 bar Φ8/30 (riser + tread, anchored in the waist) and one bar Φ8 at the nosing; cut 1-1 across the
 flight; the bars drawn separately at half the scale.
 
-**Slab thicknesses 12, 14, 16, 18 or 20 cm** – every slab (hall, meeting room, corridor, offices with
-slabs 10 and the lobby, stairs, canopy) takes the smallest of these values for which all its checks pass
+**Slab thicknesses 12, 14, 16, 18 or 20 cm** – the office slabs 19–21 are 14 cm (`hf_office`, 0 =
+automatic); every other slab (hall, meeting room, corridor, stairs, canopy) takes the smallest of these
+values for which all its checks pass; slabs 10 and 18 (not designed) have the thickness of the offices
 (the stairs start at 14 cm, the canopy is checked for bending and for l/d as a cantilever); a value given
 in the input file that is not one of them is rounded up (with a message); the balconies run from the
 thickness of the office slabs at the wall to 12 cm at the free edge. When the office slabs are fixed in
