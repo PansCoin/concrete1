@@ -113,6 +113,83 @@ def merge_beam_lines(msp, holes, gap_max=70.0):
                 keep.dxf.start, keep.dxf.end = (c, a), (c, b)
 
 
+def _poly_of(h, boundary):
+    from ezdxf import path as ezpath
+    p = ezpath.from_hatch_boundary_path(boundary, h.ocs(), h.dxf.elevation.z)
+    return [(v.x, v.y) for v in p.flattening(1.0)]
+
+
+def _box_of(pts):
+    xs = [p[0] for p in pts]
+    ys = [p[1] for p in pts]
+    return min(xs), min(ys), max(xs), max(ys)
+
+
+def _inside_poly(pt, poly):
+    x, y = pt
+    inside = False
+    for (x0, y0), (x1, y1) in zip(poly, poly[1:] + poly[:1]):
+        if (y0 > y) != (y1 > y) and x < x0 + (y - y0) * (x1 - x0) / (y1 - y0):
+            inside = not inside
+    return inside
+
+
+def patch_section_bands(msp, sections):
+    """The walls of the formwork plan are hatched around the sections drawn in place across
+    them. The background has no sections: every band of a wall crossed by a section gets the
+    hatch of the wall again (a copy: the pattern lines coincide) and the faces of the wall a
+    line. sections: boxes of the section hatches."""
+    polys, patches = [], []
+    for h in msp.query("HATCH"):
+        if h.dxf.layer != "!Hatch":
+            continue
+        for bp in h.paths:
+            pts = _poly_of(h, bp)
+            if len(pts) < 3:
+                continue
+            polys.append(pts)
+            x0, y0, x1, y1 = _box_of(pts)
+            along_x = (x1 - x0) >= (y1 - y0)
+            t = (y1 - y0) if along_x else (x1 - x0)
+            if t > 40.0:                                   # not a wall band
+                continue
+            for s in sections:
+                if along_x:
+                    a, b = max(x0, s[0]), min(x1, s[2])
+                    if s[1] <= y0 + 1.5 and s[3] >= y1 - 1.5 and b - a > 1.0:     # across the band
+                        patches.append([h, (a, y0, b, y1)])
+                else:
+                    a, b = max(y0, s[1]), min(y1, s[3])
+                    if s[0] <= x0 + 1.5 and s[2] >= x1 - 1.5 and b - a > 1.0:
+                        patches.append([h, (x0, a, x1, b)])
+    merged = True
+    while merged:                                          # patches of one wall that touch
+        merged = False
+        for i in range(len(patches)):
+            for j in range(i + 1, len(patches)):
+                (h1, a), (h2, b) = patches[i], patches[j]
+                if h1 is h2 and a[0] <= b[2] + 0.2 and b[0] <= a[2] + 0.2 and a[1] <= b[3] + 0.2 \
+                        and b[1] <= a[3] + 0.2:
+                    patches[i][1] = (min(a[0], b[0]), min(a[1], b[1]), max(a[2], b[2]), max(a[3], b[3]))
+                    del patches[j]
+                    merged = True
+                    break
+            if merged:
+                break
+    for h, (x0, y0, x1, y1) in patches:
+        cp = h.copy()
+        cp.dxf.associative = 0                             # no boundary objects
+        cp.paths.clear()
+        cp.paths.add_polyline_path([(x0, y0), (x1, y0), (x1, y1), (x0, y1)], is_closed=True)
+        msp.add_entity(cp)
+        xm, ym = (x0 + x1) / 2, (y0 + y1) / 2
+        for a, b, out in (((x0, y0), (x1, y0), (xm, y0 - 1.0)), ((x0, y1), (x1, y1), (xm, y1 + 1.0)),
+                          ((x0, y0), (x0, y1), (x0 - 1.0, ym)), ((x1, y0), (x1, y1), (x1 + 1.0, ym))):
+            if not any(_inside_poly(out, p) for p in polys):      # an edge on a face of the wall
+                msp.add_line(a, b, dxfattribs={"layer": "!Column"})
+    return len(patches)
+
+
 def prepare_background(doc, lay):
     """Grey outline of the structure (beams, walls, columns, axes, names) in a block.
     Returns the slab numbers of the formwork plan [(number, (x, y))]: they are not part
@@ -120,6 +197,12 @@ def prepare_background(doc, lay):
     from .dxf_formwork import _label_clusters
     msp = doc.modelspace()
     numbers = [(L["no"], (L["c"].x, L["c"].y)) for L in _label_clusters(doc, msp)]
+    sections = []
+    for h in msp.query("HATCH"):
+        if h.dxf.layer != "!Hatch" and h.dxf.pattern_name == "ANSI31":       # sections in place
+            bb = ezbbox.extents([h])
+            if bb.has_data:
+                sections.append((bb.extmin.x, bb.extmin.y, bb.extmax.x, bb.extmax.y))
     for e in list(msp):
         t = e.dxftype()
         keep = e.dxf.layer in BG_LAYERS and t in BG_TYPES
@@ -135,6 +218,7 @@ def prepare_background(doc, lay):
             keep = False
         if not keep:
             msp.delete_entity(e)
+    patch_section_bands(msp, sections)
     holes = []
     for h in msp.query("HATCH"):
         bb = ezbbox.extents([h])
@@ -337,11 +421,12 @@ def draw_rep(msp, rep, dx=0.0):
     segs = b.segs
     main = segs[len(segs) // 2]
     off = sd * (H_LEN * 0.9)
+    text(msp, fmt(main), (p0[0] + ux * L / 2 + nx * off, p0[1] + uy * L / 2 + ny * off), H_LEN, ang)
     if rep.parts:
         # top bars: the length inside each slab (from the face of the support), dimensioned beside
-        # the bar beyond its folded legs
+        # the bar, beyond its hook and its length text
         lmax = max(leg0, leg1, 0.0)
-        o = sd * (lmax + 9.0)
+        o = sd * (max(lmax, H_LEN * 1.4) + 9.0)
         for d0, d1 in rep.parts:
             if d1 - d0 < 1.0:
                 continue
@@ -349,10 +434,8 @@ def draw_rep(msp, rep, dx=0.0):
             c_ = (p0[0] + ux * d1, p0[1] + uy * d1)
             d = msp.add_linear_dim(base=(a[0] + nx * o, a[1] + ny * o), p1=a, p2=c_,
                                    angle=0 if abs(uy) < 1e-6 else 90, dimstyle=DIMSTYLE,
-                                   override={"dimexo": lmax + 2.0}, dxfattribs={"layer": "R-DIM"})
+                                   override={"dimexo": max(lmax, H_LEN * 1.4) + 2.0}, dxfattribs={"layer": "R-DIM"})
             d.render()
-    else:
-        text(msp, fmt(main), (p0[0] + ux * L / 2 + nx * off, p0[1] + uy * L / 2 + ny * off), H_LEN, ang)
     if leg0 > 0:
         q = (p0[0] + sd * nx * leg0 / 2 - ux * H_LEN * 0.9, p0[1] + sd * ny * leg0 / 2 - uy * H_LEN * 0.9)
         text(msp, fmt(segs[0]), q, H_LEN, ang + 90)
@@ -406,10 +489,87 @@ def draw_mesh_zone(msp, z, dx=0.0):
         text(msp, mt.label(), c, H_MESH, ang, layer="R-TEXT")
 
 
-def dimension_chains(msp, segments, dx=0.0):
+DIM_TXT_H = 9.0          # text height of RC_DIM
+DIM_TXT_OFF = 1.2 + DIM_TXT_H / 2   # text centre above the dimension line (dimgap + h/2)
+
+
+def _dim_str(v):
+    return f"{v:.1f}".rstrip("0").rstrip(".")
+
+
+def _mtext_box(e):
+    """box of a MTEXT from its text, height, attachment point and rotation (the bounding box
+    ezdxf gives for a MTEXT without a width can be far off)"""
+    lines = e.plain_text().split("\n") or [""]
+    h = e.dxf.char_height
+    w = max(len(ln) for ln in lines) * 0.85 * h
+    H = h * (1.2 + 1.67 * (len(lines) - 1))
+    ap = e.dxf.get("attachment_point", 1)
+    fx = (0.0, 0.5, 1.0)[(ap - 1) % 3]
+    fy = (1.0, 0.5, 0.0)[(ap - 1) // 3]
+    a = math.radians(e.get_rotation())
+    ca, sa = math.cos(a), math.sin(a)
+    ins = e.dxf.insert
+    pts = []
+    for u, v in ((-fx * w, -fy * H), ((1 - fx) * w, -fy * H), ((1 - fx) * w, (1 - fy) * H), (-fx * w, (1 - fy) * H)):
+        pts.append((ins.x + u * ca - v * sa, ins.y + u * sa + v * ca))
+    return _box_of(pts)
+
+
+def text_boxes(entities, dx=0.0):
+    """boxes of the texts among entities (rotated texts: their bounding box)"""
+    out = []
+    for e in entities:
+        if e.dxftype() == "MTEXT":
+            b = _mtext_box(e)
+            out.append((b[0] + dx, b[1], b[2] + dx, b[3]))
+        elif e.dxftype() == "TEXT":
+            bb = ezbbox.extents([e], fast=True)
+            if bb.has_data:
+                out.append((bb.extmin.x + dx, bb.extmin.y, bb.extmax.x + dx, bb.extmax.y))
+        elif e.dxftype() == "DIMENSION":                  # the text of a dimension
+            try:
+                out += text_boxes([v for v in e.virtual_entities() if v.dxftype() in ("TEXT", "MTEXT")], dx)
+            except Exception:
+                pass
+    return out
+
+
+def _dim_text_place(o, c, s, e, txt, avoid):
+    """centre of the text of a dimension from s to e on the line c (o = "h" / "v"): in the middle
+    above (left of) the line, or the nearest place along the line - or on the other side - where it
+    does not cover another text. None = the default place."""
+    w, h = 0.8 * DIM_TXT_H * len(txt), DIM_TXT_H
+    room = (e - s) / 2 - w / 2 - 2.0                   # the text stays over the dimension line
+    if not avoid:
+        return None
+    mid = (s + e) / 2
+
+    def box(side, off):
+        if o == "h":
+            x, y = mid + off, c + side * DIM_TXT_OFF
+            return (x, y), (x - w / 2, y - h / 2, x + w / 2, y + h / 2)
+        x, y = c - side * DIM_TXT_OFF, mid + off
+        return (x, y), (x - h / 2, y - w / 2, x + h / 2, y + w / 2)
+
+    def free(b):
+        return not any(b[0] < a[2] + 1.0 and a[0] < b[2] + 1.0 and b[1] < a[3] + 1.0 and a[1] < b[3] + 1.0
+                       for a in avoid)
+    offs = [0.0] if room < 0 else [k * 5.0 * sg for k in range(int(room // 5.0) + 1) for sg in (1, -1)]
+    cands = [(abs(off) + (0.0 if side == 1 else 15.0), side, off) for side in (1, -1) for off in offs]
+    for _, side, off in sorted(cands):
+        p, b = box(side, off)
+        if free(b):
+            return None if (side == 1 and off == 0) else p
+    return None
+
+
+def dimension_chains(msp, segments, dx=0.0, avoid=None):
     """segments: [((x0, y0), (x1, y1))] horizontal or vertical. Collinear
     segments are put on one line and chained: short gaps between them (the
-    supports) are dimensioned as well, so that the dimensions touch."""
+    supports) are dimensioned as well, so that the dimensions touch. avoid: boxes of texts
+    the dimension texts must not cover (the texts are moved along their line)."""
+    avoid = list(avoid or [])
     lines = {}
     for (a, b) in segments:
         if abs(a[1] - b[1]) < 0.01:
@@ -443,13 +603,19 @@ def dimension_chains(msp, segments, dx=0.0):
                         continue
             chain.append((s, e))
         for s, e in chain:
+            txt = _dim_str(e - s)
             if o == "h":
                 d = msp.add_linear_dim(base=(s + dx, c), p1=(s + dx, c), p2=(e + dx, c), angle=0,
                                        dimstyle=DIMSTYLE, dxfattribs={"layer": "R-DIM"})
+                loc = _dim_text_place(o, c, s + dx, e + dx, txt, avoid)
             else:
                 d = msp.add_linear_dim(base=(c + dx, s), p1=(c + dx, s), p2=(c + dx, e), angle=90,
                                        dimstyle=DIMSTYLE, dxfattribs={"layer": "R-DIM"})
+                loc = _dim_text_place(o, c + dx, s, e, txt, avoid)
+            if loc is not None:
+                d.set_location(loc, leader=False)
             d.render()
+            avoid += text_boxes([d.dimension])
             n += 1
     return n
 
@@ -541,6 +707,7 @@ def write(formwork_path, out_path, lay, plan, inp, title_extra="", P=None):
     from .dxf_formwork import slab_panels, snap, YB, T_B17_Y
     panels = slab_panels(X, Y, lay.hall_y, lay.room_x, snap(lay.FY(T_B17_Y)[0], YB))
     bg_segs, bg_boxes = _geometry(list(doc.blocks.get(BG_BLOCK)))
+    bg_texts = text_boxes(list(doc.blocks.get(BG_BLOCK)))
     missing = set()
     ext = ezbbox.extents(doc.blocks.get(BG_BLOCK), fast=True)
     left = ext.extmin.x
@@ -555,13 +722,20 @@ def write(formwork_path, out_path, lay, plan, inp, title_extra="", P=None):
     sheets = []
 
     def draw_face(dx, face, reps, zones, slab_total):
+        start = len(msp)
         msp.add_blockref(BG_BLOCK, (dx, 0))
         for z in zones:
             draw_mesh_zone(msp, z, dx)
         for rep in reps:
             draw_rep(msp, rep, dx)
+        drawn = list(msp)[start:]
+        avoid = text_boxes(drawn) + [(b[0] + dx, b[1], b[2] + dx, b[3]) for b in bg_texts]
+        for e in drawn:                                   # the bars (not the mesh outlines)
+            if e.dxftype() == "LWPOLYLINE" and e.dxf.layer.startswith("R-BARS"):
+                bb = ezbbox.extents([e], fast=True)
+                avoid.append((bb.extmin.x, bb.extmin.y, bb.extmax.x, bb.extmax.y))
         dimension_chains(msp, [r.rng for r in reps if r.rng] + [z.rng for z in zones if z.rng]
-                         + plan.dims.get(face, []), dx)
+                         + plan.dims.get(face, []), dx, avoid)
         for (p1, p2) in plan.laps.get(face, []):          # overlaps: one dimension each
             vert = abs(p1[0] - p2[0]) < 0.01
             if abs(p2[0] - p1[0]) + abs(p2[1] - p1[1]) < 0.5:
@@ -586,8 +760,8 @@ def write(formwork_path, out_path, lay, plan, inp, title_extra="", P=None):
             "The dimension lines give the width over which the bars / meshes are placed and every "
             "overlap (lap) of bars or meshes.",
             "Bottom bars run into the supports up to the far face minus the cover; "
-            "top bars are bent down to the bottom cover. Bottom bars end with a 12 cm leg where they do not "
-            "overlap other bars. Laps of bars: 40Φ (Φ8: 32 cm, Φ10: 40 cm).",
+            "top bars at edge supports run to the far face of the support and are hooked down. Bottom bars "
+            "end with a 12 cm leg where they do not overlap other bars. Laps of bars: 40Φ (Φ8: 32 cm, Φ10: 40 cm).",
         ] + plan.notes
         yy = ext.extmin.y - 60
         for i, s_ in enumerate(notes):

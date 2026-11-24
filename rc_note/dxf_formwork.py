@@ -91,6 +91,11 @@ T_SHEAR_WALLS = {
     "SW9": ("y", 1745.6, 2120.6),
 }
 
+# free ends of the shear walls SW4 (axis B) and SW3 (axis D): template x and y-band. They belong
+# to rigid groups (SW4: the section drawn across the wall), but the wall has to end where its
+# label puts it (snap(FX(x))), so these points are pinned
+T_WALL_PINS = ((3542.91, 1160.0, 1196.0), (3542.91, 1510.0, 1546.0))
+
 # rigid radius around each control line of the stretch [cm]
 R_AXIS = 60.0
 R_EDGE = 70.0
@@ -328,6 +333,22 @@ class Mover:
 
     # mapping of one point for an entity --------------------------------------
     def mapper(self, pl, cluster):
+        f = self._mapper(pl, cluster)
+        if pl.name != "global":
+            return f
+
+        def g(x, y, s=True):
+            nx, ny = f(x, y, s)
+            g.attached = getattr(f, "attached", False)
+            for px, y0, y1 in T_WALL_PINS:
+                if abs(x - px) < 0.06 and y0 <= y <= y1:
+                    nx = snap(pl.xfun(px)[0], XB)
+                    g.attached = True
+            return nx, ny
+        g.attached = False
+        return g
+
+    def _mapper(self, pl, cluster):
         fy = self.fy
         if cluster is not None:
             dx, dy = cluster["delta"]

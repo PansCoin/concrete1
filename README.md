@@ -54,6 +54,11 @@ The hall beams are re-spaced, meeting-room panels are added or removed (with
 renumbering of the slabs and beams), the balconies get the depth d and the canopy
 1.25·d. The slab thicknesses `h_f = .. cm` and a table of the element sizes
 (slabs, beams, columns, footing) come from the calculations.
+Drafting slips of the example are corrected in the template (`DRAFTING_FIXES` in
+`tools/extract_template.py`): the shear walls SW3/SW4 are drawn as long as their labels say
+(the hatch of SW4 rose 8.5 cm towards axis 7), and the walls SW2–SW4 are hatched exactly up to
+the sections drawn across them. The free ends of SW3/SW4 stay where their labels put them on
+every grid. In the reinforcement plans (no sections there) the walls are hatched through.
 The beam section marks of the plan are redrawn from scratch, symmetric about the web: a hatched
 T (L for edge beams, stepped where the slabs on the two sides are at different levels) with the slab
 thickness of the slab field on each side and the beam depth h from the design (B5-B9, B15, B21,
@@ -105,17 +110,20 @@ no bar, mesh, label, dimension or line of the background crosses the circle.
 | Slab | Bottom | Top |
 |---|---|---|
 | meeting room (III) | BR end / interior spans, DR | TR over the beams (support B / interior), TR at 5' and 7, constructive at E |
-| corridor (I) | BR, DR in 3 pieces with laps (> 12 m) | TR across the beams on B (into the offices) and D (into the meeting room), at D next to slab 10 hooked into the beam; constructive at 4/7 |
-| offices 19–21 (IV) | BR x and y | TR over axes 5, 6, TR at the walls 4/7 and on axis A (all three slabs) |
+| corridor (I) | BR, DR in 3 pieces with laps (> 12 m) | TR at B/D (hooked into the beams), constructive at 4/7 |
+| offices 19–21 (IV) | BR x and y | TR over axes 5, 6, TR at the walls 4/7 and on axes B and A (all three slabs) |
 | balconies (IV), canopy 7 (VII) | – | TR cantilever bars + DR |
 | slabs 10, 18 | – | – (not designed: no calculation, no reinforcement) |
 
 AR = assembly bars under the top bars (dots on the TR bars). Detailing rules (EC2 9.3):
-bottom bars into the supports up to the far face minus the cover; **top bars 0.3 × the clear span
-of the slab beyond the face of every support** (over a beam between two slabs one bar across the
-beam, 0.3 × the span of each slab into it; the top meshes of the hall the same), and the drawing
-dimensions that length inside each slab beside the bar; end supports A_s3 ≥ max(0.25·A_s;
-A_s,min; 5Φ8/m); distribution ≥ 0.2·A_s and 3Φ8/m.
+bottom bars into the supports up to the far face minus the cover. Top bars as in the course
+example: **over an interior support a straight bar, 0.3 × the clear span of each slab beyond the
+face**; at an edge support (wall or beam with another slab behind it: B, D, A, 4, 7) each slab has
+its own bar, run to the far face of the support and hooked down (15 cm), reaching 0.2 × the span
+into a slab spanning in two directions and 0.3 × the span into a slab spanning in one direction;
+edges parallel to the span of a one-way slab (constructive) 0.25 × the span. The drawing gives
+the straight length on the bar and dimensions its length inside each slab beside it. End
+supports A_s3 ≥ max(0.25·A_s; A_s,min; 5Φ8/m); distribution ≥ 0.2·A_s and 3Φ8/m.
 
 The width over which each group of bars or zone of meshes is placed is given with real
 **dimension lines** (DIMENSION entities, style `RC_DIM`). Collinear dimensions are chained, so
